@@ -16,12 +16,52 @@ export interface IUser extends Document {
   password: string;
   isEmailVerified: boolean;
   avatarUrl?: string;
+  coverUrl?: string;
   loginAttempts: number;
   lockUntil?: Date;
   passwordChangedAt?: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   refreshTokens: string[];
+
+  // HR Fields
+  employmentInfo?: {
+    joiningDate?: Date;
+    workLocation?: string;
+    employmentType?: string;
+    manager?: string;
+  };
+  compliance?: {
+    panNumber?: string;
+    aadharNumber?: string;
+    uanNumber?: string;
+    taxRegime?: "old" | "new";
+  };
+  documents?: {
+    _id?: mongoose.Types.ObjectId;
+    title: string;
+    url: string;
+    type: string;
+    uploadedAt: Date;
+  }[];
+  salary?: {
+    basic: number;
+    hra: number;
+    allowances: number;
+    pf: number;
+    totalCTC: number;
+  };
+  privacySettings?: {
+    dataSharingConsent: boolean;
+    marketingEmails: boolean;
+  };
+  notificationPreferences?: {
+    emailAlerts: boolean;
+    pushNotifications: boolean;
+    weeklyDigest: boolean;
+    theme: "light" | "dark" | "system";
+  };
+
   createdAt: Date;
   updatedAt: Date;
 
@@ -103,6 +143,12 @@ const userSchema = new Schema<IUser>(
     },
     avatarUrl: {
       type: String,
+      trim: true,
+      default: "",
+    },
+    coverUrl: {
+      type: String,
+      trim: true,
       default: "",
     },
     loginAttempts: {
@@ -130,6 +176,43 @@ const userSchema = new Schema<IUser>(
       type: [String],
       default: [],
       select: false,
+    },
+    employmentInfo: {
+      joiningDate: { type: Date },
+      workLocation: { type: String, default: "Office" },
+      employmentType: { type: String, default: "Full-Time" },
+      manager: { type: String },
+    },
+    compliance: {
+      panNumber: { type: String, uppercase: true },
+      aadharNumber: { type: String },
+      uanNumber: { type: String },
+      taxRegime: { type: String, enum: ["old", "new"] },
+    },
+    documents: [
+      {
+        title: { type: String, required: true },
+        url: { type: String, required: true },
+        type: { type: String, required: true },
+        uploadedAt: { type: Date, default: Date.now },
+      },
+    ],
+    salary: {
+      basic: { type: Number, default: 0 },
+      hra: { type: Number, default: 0 },
+      allowances: { type: Number, default: 0 },
+      pf: { type: Number, default: 0 },
+      totalCTC: { type: Number, default: 0 },
+    },
+    privacySettings: {
+      dataSharingConsent: { type: Boolean, default: false },
+      marketingEmails: { type: Boolean, default: false },
+    },
+    notificationPreferences: {
+      emailAlerts: { type: Boolean, default: true },
+      pushNotifications: { type: Boolean, default: true },
+      weeklyDigest: { type: Boolean, default: true },
+      theme: { type: String, enum: ["light", "dark", "system"], default: "system" },
     },
   },
   { timestamps: true }

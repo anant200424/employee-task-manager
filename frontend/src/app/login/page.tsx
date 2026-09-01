@@ -13,15 +13,24 @@ export default function LoginPage() {
       {/* Soft Ambient Background Elements */}
       <div className="absolute top-0 left-0 w-96 h-96 bg-blue-300/25 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl pointer-events-none" />
-      
+
+      {/* Admin Portal Link */}
+      <div className="absolute top-6 right-6 sm:top-10 sm:right-10 z-20">
+        <Link
+          href="/admin-login"
+          className="flex items-center gap-2 rounded-xl bg-white/60 hover:bg-white/95 border border-slate-300/80 px-4 py-2 text-[13px] font-semibold text-[#4355CC] shadow-sm backdrop-blur-sm transition-all"
+        >
+          <Shield className="w-4 h-4" />
+          <span>Admin Portal</span>
+        </Link>
+      </div>
+
       {/* Container */}
       <div className="relative z-10 w-full max-w-[1060px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center my-auto">
-        
         {/* =======================================================
             LEFT COLUMN (Storytelling & Features)
         ======================================================= */}
         <section className="lg:col-span-6 flex flex-col justify-center max-w-[480px]">
-          
           {/* Brand Logo */}
           <div className="flex items-center gap-3 mb-10">
             <div className="relative flex items-center">
@@ -41,7 +50,8 @@ export default function LoginPage() {
 
           {/* Subtitle */}
           <p className="mt-4 text-[14.5px] text-slate-600 leading-relaxed max-w-[420px]">
-            Join thousands of modern teams who use EmpSphere to align their organization, ship faster, and hit their goals.
+            Join thousands of modern teams who use EmpSphere to align their
+            organization, ship faster, and hit their goals.
           </p>
 
           {/* Feature Cards */}
@@ -92,18 +102,30 @@ export default function LoginPage() {
       <footer className="w-full max-w-[1360px] mx-auto flex flex-col sm:flex-row items-center justify-between text-[13px] text-slate-500 font-medium pt-8 gap-4">
         <div className="flex items-center gap-6">
           <span>© 2026 EmpSphere Inc.</span>
-          <Link href="/privacy" className="hover:text-slate-800 transition-colors">
+          <Link
+            href="/privacy"
+            className="hover:text-slate-800 transition-colors"
+          >
             Privacy
           </Link>
-          <Link href="/terms" className="hover:text-slate-800 transition-colors">
+          <Link
+            href="/terms"
+            className="hover:text-slate-800 transition-colors"
+          >
             Terms
           </Link>
         </div>
         <div className="flex items-center gap-6">
-          <Link href="/privacy" className="hover:text-slate-800 transition-colors">
+          <Link
+            href="/privacy"
+            className="hover:text-slate-800 transition-colors"
+          >
             Privacy Policy
           </Link>
-          <Link href="/terms" className="hover:text-slate-800 transition-colors">
+          <Link
+            href="/terms"
+            className="hover:text-slate-800 transition-colors"
+          >
             Terms of Service
           </Link>
           <Link href="/help" className="hover:text-slate-800 transition-colors">

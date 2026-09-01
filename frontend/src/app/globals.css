@@ -2,25 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
-}
+@layer base {
+  :root {
+    color-scheme: light;
+  }
 
-html,
-body {
-  height: 100%;
-}
+  html,
+  body {
+    height: 100%;
+  }
 
-body {
-  @apply bg-ink-50 text-ink-900 font-body antialiased;
-}
+  body {
+    background-color: #F8FAFC;
+    color: #0F172A;
+    font-family: var(--font-inter), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
 
-* {
-  scrollbar-width: none;
-}
+  * {
+    scrollbar-width: none;
+  }
 
-*::-webkit-scrollbar {
-  display: none;
+  *::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Visible keyboard focus ring across the app — accessibility floor */
@@ -82,3 +87,89 @@ body {
   }
 }
 
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ============================================================
+   GLOBAL PREMIUM DARK MODE
+   ============================================================ */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0F172A;
+  color: #F8FAFC;
+}
+
+html.dark .bg-white,
+html.dark .bg-white\/60,
+html.dark .bg-white\/80 {
+  background-color: #1E293B !important;
+  color: #F8FAFC !important;
+}
+
+html.dark .border-slate-100, 
+html.dark .border-slate-200,
+html.dark .border-slate-200\/30,
+html.dark .border-slate-100\/50,
+html.dark .border-ink-100,
+html.dark .border-slate-300 {
+  border-color: #334155 !important;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-ink-900,
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5 {
+  color: #F8FAFC !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-600,
+html.dark .text-slate-400 {
+  color: #94A3B8 !important;
+}
+
+html.dark .bg-slate-50,
+html.dark .bg-slate-100,
+html.dark .bg-slate-50\/50 {
+  background-color: #0F172A !important;
+}
+
+html.dark input, 
+html.dark select,
+html.dark textarea {
+  background-color: #0F172A !important;
+  color: #F8FAFC !important;
+  border-color: #334155 !important;
+}
+
+html.dark header,
+html.dark aside,
+html.dark .bg-[#F4F8FB]\/90 {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+}
+
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover,
+html.dark .hover\:bg-slate-100\/80:hover {
+  background-color: #334155 !important;
+  color: #F8FAFC !important;
+}
+
+html.dark .text-slate-700 {
+  color: #CBD5E1 !important;
+}

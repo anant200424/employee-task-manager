@@ -1,115 +1,115 @@
 "use client";
 
 import { useState } from "react";
-import { Topbar } from "@/components/dashboard/Topbar";
-import { PhoneField } from "@/components/auth/PhoneField";
-import { Button } from "@/components/ui/Button";
-import { Alert } from "@/components/ui/Alert";
 import { useAuth } from "@/context/AuthContext";
-import { validateName, validatePhoneNumber, validatePassword } from "@/lib/validation";
 import { api, extractApiError } from "@/lib/api";
-import { useRouter } from "next/navigation";
-import { User, Shield, Lock, Building, Briefcase, Calendar, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  User,
+  Building2,
+  ShieldCheck,
+  FolderOpen,
+  IndianRupee,
+  CheckCircle2,
+  Camera,
+  Trash2,
+} from "lucide-react";
 
-const DEPARTMENTS = [
-  "Engineering",
-  "Design",
-  "Product",
-  "Marketing",
-  "Sales",
-  "Operations",
-  "Finance",
-  "Human Resources",
-];
+import { PersonalInfoTab } from "@/components/profile/PersonalInfoTab";
+import { EmploymentInfoTab } from "@/components/profile/EmploymentInfoTab";
+import { ComplianceTab } from "@/components/profile/ComplianceTab";
+import { DocumentsTab } from "@/components/profile/DocumentsTab";
+import { SalaryStructureTab } from "@/components/profile/SalaryStructureTab";
+
+type TabId = "personal" | "employment" | "compliance" | "documents" | "salary";
 
 export const ProfileContent = () => {
-  const { user, setUser, logout } = useAuth();
-  const router = useRouter();
+  const { user, setUser } = useAuth();
 
-  const [firstName, setFirstName] = useState(user?.firstName || "");
-  const [lastName, setLastName] = useState(user?.lastName || "");
-  const [department, setDepartment] = useState(user?.department || "Engineering");
-  const [role, setRole] = useState(user?.role || "Software Engineer");
-  const [employeeId, setEmployeeId] = useState(user?.employeeId || "EMP-1042");
-  const [dateOfBirth, setDateOfBirth] = useState(
-    user?.dateOfBirth ? user.dateOfBirth.split("T")[0] : "1998-05-15"
-  );
-  const [countryCode, setCountryCode] = useState(user?.countryCode || "IN");
-  const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber || "");
-  const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<TabId>("personal");
+  
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || "");
+  const [coverUrl, setCoverUrl] = useState(user?.coverUrl || "");
   const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [savingProfile, setSavingProfile] = useState(false);
 
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [pwErrors, setPwErrors] = useState<Record<string, string>>({});
-  const [pwMsg, setPwMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [savingPw, setSavingPw] = useState(false);
+  const TABS = [
+    { id: "personal", label: "Personal Information", icon: User },
+    { id: "employment", label: "Employment Information", icon: Building2 },
+    { id: "compliance", label: "Compliance", icon: ShieldCheck },
+    { id: "documents", label: "Documents", icon: FolderOpen },
+    { id: "salary", label: "Salary Structure", icon: IndianRupee },
+  ];
 
-  const handleProfileSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setProfileMsg(null);
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const errs: Record<string, string> = {};
-    const fnErr = validateName(firstName, "First name");
-    if (fnErr) errs.firstName = fnErr;
-    const lnErr = validateName(lastName, "Last name");
-    if (lnErr) errs.lastName = lnErr;
-    const phErr = validatePhoneNumber(phoneNumber, countryCode);
-    if (phErr) errs.phoneNumber = phErr;
-    setProfileErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (!file.type.startsWith("image/")) {
+      setProfileMsg({ type: "error", text: "Please select a valid image file" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileMsg({ type: "error", text: "Image file size must be less than 5MB" });
+      return;
+    }
 
-    setSavingProfile(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = reader.result as string;
+      setAvatarUrl(result);
+      try {
+        const res = await api.patch("/users/me", { avatarUrl: result });
+        setUser(res.data.data.user);
+      } catch (err) {
+        setProfileMsg({ type: "error", text: "Failed to upload avatar" });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarUrl("");
     try {
-      const res = await api.patch("/users/me", {
-        firstName,
-        lastName,
-        countryCode,
-        phoneNumber,
-        department,
-        role,
-        employeeId,
-        dateOfBirth,
-      });
+      const res = await api.patch("/users/me", { avatarUrl: "" });
       setUser(res.data.data.user);
-      setProfileMsg({ type: "success", text: "EmpSphere employee profile updated successfully." });
     } catch (err) {
-      const { message, errors } = extractApiError(err);
-      if (errors) setProfileErrors((p) => ({ ...p, ...errors }));
-      setProfileMsg({ type: "error", text: message });
-    } finally {
-      setSavingProfile(false);
+      setProfileMsg({ type: "error", text: "Failed to remove avatar" });
     }
   };
 
-  const handlePasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPwMsg(null);
+  const handleCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const errs: Record<string, string> = {};
-    if (!currentPassword) errs.currentPassword = "Current password is required";
-    const npErr = validatePassword(newPassword);
-    if (npErr) errs.newPassword = npErr;
-    if (newPassword !== confirmNewPassword) errs.confirmNewPassword = "Passwords do not match";
-    setPwErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (!file.type.startsWith("image/")) {
+      setProfileMsg({ type: "error", text: "Please select a valid image file" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setProfileMsg({ type: "error", text: "Cover image file size must be less than 10MB" });
+      return;
+    }
 
-    setSavingPw(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = reader.result as string;
+      setCoverUrl(result);
+      try {
+        const res = await api.patch("/users/me", { coverUrl: result });
+        setUser(res.data.data.user);
+      } catch (err) {
+        setProfileMsg({ type: "error", text: "Failed to upload cover image" });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveCover = async () => {
+    setCoverUrl("");
     try {
-      await api.patch("/auth/change-password", { currentPassword, newPassword, confirmNewPassword });
-      setPwMsg({ type: "success", text: "Password changed successfully. Please log in again." });
-      setTimeout(async () => {
-        await logout();
-        router.push("/login");
-      }, 1500);
+      const res = await api.patch("/users/me", { coverUrl: "" });
+      setUser(res.data.data.user);
     } catch (err) {
-      const { message, errors } = extractApiError(err);
-      if (errors) setPwErrors((p) => ({ ...p, ...errors }));
-      setPwMsg({ type: "error", text: message });
-    } finally {
-      setSavingPw(false);
+      setProfileMsg({ type: "error", text: "Failed to remove cover" });
     }
   };
 
@@ -118,296 +118,121 @@ export const ProfileContent = () => {
     : "EM";
 
   return (
-    <>
-      <Topbar title="Employee Profile" subtitle="Manage your personal information, department role, and security." />
-
-      <main className="grid grid-cols-1 gap-7 p-5 sm:p-7 lg:grid-cols-12 lg:p-8 max-w-[1400px]">
-        {/* Left ID Badge Card (4 Cols) */}
-        <div className="rounded-3xl border border-slate-200/80 bg-white p-7 text-center lg:col-span-4 h-fit shadow-[0_2px_12px_-2px_rgba(15,23,42,0.04)]">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-[#1E293B] text-2xl font-bold text-white shadow-md">
-            {initials}
-          </div>
-          <h3 className="mt-4 text-[18px] font-bold text-slate-900">
-            {user ? `${user.firstName} ${user.lastName}` : "Employee Profile"}
-          </h3>
-          <p className="text-[13px] text-slate-500">{user?.email}</p>
-
-          <div className="mt-3 flex items-center justify-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-0.5 text-xs font-bold text-[#4355CC]">
-              {user?.department || "Engineering"}
-            </span>
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-0.5 text-xs font-semibold text-slate-700">
-              {user?.role || "Software Engineer"}
-            </span>
-          </div>
-
-          <div className="mt-6 w-full border-t border-slate-100 pt-5 text-left text-[13px] space-y-3">
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-400">Employee ID</span>
-              <span className="font-mono font-bold text-[#4355CC]">{user?.employeeId || "EMP-1042"}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-400">Mobile</span>
-              <span className="font-medium text-slate-800">
-                {user?.dialCode || "+91"} {user?.phoneNumber || "9876543210"}
-              </span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-400">Date of Birth</span>
-              <span className="font-medium text-slate-800">
-                {user?.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : "—"}
-              </span>
-            </div>
-            <div className="flex justify-between py-1">
-              <span className="text-slate-400">Member since</span>
-              <span className="font-medium text-slate-800">
-                {user?.createdAt ? new Date(user.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "2026"}
-              </span>
-            </div>
-          </div>
+    <div className="w-full bg-slate-50 min-h-screen pb-16">
+      {/* Hero Banner Section */}
+      <div className="h-48 w-full bg-gradient-to-r from-blue-50 via-indigo-50/50 to-white relative flex-shrink-0 border-b border-slate-200/60 overflow-hidden group">
+        {coverUrl ? (
+          <img src={coverUrl} alt="Profile Cover" className="w-full h-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03]"></div>
+        )}
+        
+        {/* Cover Image Upload/Delete Controls (Hover) */}
+        <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          {coverUrl && (
+            <button
+              type="button"
+              onClick={handleRemoveCover}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/90 hover:bg-rose-600 text-white text-[12px] font-bold shadow-sm backdrop-blur-sm transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Remove Cover
+            </button>
+          )}
+          <label
+            htmlFor="profile-cover-upload"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/70 hover:bg-slate-900 text-white text-[12px] font-bold shadow-sm backdrop-blur-sm cursor-pointer transition-colors"
+          >
+            <Camera className="w-3.5 h-3.5" /> Update Cover
+          </label>
+          <input id="profile-cover-upload" type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
         </div>
+      </div>
 
-        {/* Right Forms (8 Cols) */}
-        <div className="space-y-7 lg:col-span-8">
+      <main className="max-w-[1200px] mx-auto px-5 sm:px-7 -mt-16 relative z-10 animate-in fade-in duration-500">
+        
+        {/* Floating Profile Card */}
+        <div className="bg-white/90 backdrop-blur-xl rounded-[24px] p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/80 flex flex-col md:flex-row items-start gap-6 sm:gap-8 relative mb-8">
           
-          {/* Form 1: Employee Details */}
-          <form onSubmit={handleProfileSubmit} className="rounded-3xl border border-slate-200/80 bg-white p-7 shadow-[0_2px_12px_-2px_rgba(15,23,42,0.04)] space-y-5">
-            <div>
-              <h3 className="text-[17px] font-bold text-slate-900 flex items-center gap-2">
-                <User className="w-5 h-5 text-[#4355CC]" /> Employee Information
-              </h3>
-              <p className="text-[13px] text-slate-500 mt-0.5">
-                Update your contact details and department assignment.
-              </p>
-            </div>
-
-            {profileMsg && (
-              <div
-                className={`p-3.5 rounded-xl border flex items-center gap-2 text-[13px] font-medium ${
-                  profileMsg.type === "success"
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                    : "bg-red-50 text-red-800 border-red-200"
-                }`}
+          {/* Avatar Section */}
+          <div className="relative -mt-12 sm:-mt-16 shrink-0 z-20">
+            <div className="relative group">
+              <label
+                htmlFor="profile-avatar-upload"
+                className="relative flex h-32 w-32 sm:h-36 sm:w-36 items-center justify-center rounded-full bg-slate-100 text-4xl font-bold text-slate-400 shadow-sm overflow-hidden border-4 border-white cursor-pointer hover:scale-[1.02] transition-transform"
               >
-                {profileMsg.type === "success" ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={user ? `${user.firstName} ${user.lastName}` : "Avatar"} className="h-full w-full object-cover" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span className="flex items-center justify-center text-5xl tracking-tight text-[#4355CC]">{initials}</span>
                 )}
-                {profileMsg.text}
-              </div>
-            )}
-
-            {/* Names */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  First Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Last Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Email & Employee ID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Work Email (Read-only)
-                </label>
-                <input
-                  type="email"
-                  disabled
-                  value={user?.email || ""}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[13.5px] text-slate-500 cursor-not-allowed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Employee ID
-                </label>
-                <input
-                  type="text"
-                  value={employeeId}
-                  onChange={(e) => setEmployeeId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] font-mono text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Department & Role */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Department
-                </label>
-                <select
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                >
-                  {DEPARTMENTS.map((dept) => (
-                    <option key={dept} value={dept}>
-                      {dept}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Designation / Role
-                </label>
-                <input
-                  type="text"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Date of Birth & Phone */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Date of Birth
-                </label>
-                <input
-                  type="date"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Phone Number
-                </label>
-                <PhoneField
-                  countryIso={countryCode}
-                  phoneNumber={phoneNumber}
-                  onCountryChange={setCountryCode}
-                  onPhoneChange={setPhoneNumber}
-                  error={profileErrors.phoneNumber}
-                />
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={savingProfile}
-                className="px-6 py-2.5 rounded-xl bg-[#4355CC] hover:bg-[#3644A8] text-white text-[13.5px] font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-              >
-                {savingProfile ? "Saving changes..." : "Save Profile Changes"}
-              </button>
-            </div>
-          </form>
-
-          {/* Form 2: Password Security */}
-          <form onSubmit={handlePasswordSubmit} className="rounded-3xl border border-slate-200/80 bg-white p-7 shadow-[0_2px_12px_-2px_rgba(15,23,42,0.04)] space-y-5">
-            <div>
-              <h3 className="text-[17px] font-bold text-slate-900 flex items-center gap-2">
-                <Lock className="w-5 h-5 text-[#4355CC]" /> Change Password
-              </h3>
-              <p className="text-[13px] text-slate-500 mt-0.5">
-                Ensure your EmpSphere account is protected by a strong password.
-              </p>
-            </div>
-
-            {pwMsg && (
-              <div
-                className={`p-3.5 rounded-xl border flex items-center gap-2 text-[13px] font-medium ${
-                  pwMsg.type === "success"
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                    : "bg-red-50 text-red-800 border-red-200"
-                }`}
-              >
-                {pwMsg.type === "success" ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                )}
-                {pwMsg.text}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                Current Password <span className="text-red-500">*</span>
+                <div className="absolute inset-0 bg-black/40 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-sm font-semibold backdrop-blur-[2px]">
+                  <Camera className="w-6 h-6 mb-1.5" />
+                  <span>Update</span>
+                </div>
+                <input id="profile-avatar-upload" type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
               </label>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter your current password"
-                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-              />
+              
+              <label htmlFor="profile-avatar-upload" className="absolute -bottom-1 -right-1 p-2.5 rounded-full bg-[#4355CC] text-white border-4 border-white cursor-pointer hover:bg-[#3446b3] transition-colors shadow-md z-10" title="Edit profile picture">
+                <Camera className="w-4 h-4" />
+              </label>
+              
+              {avatarUrl && (
+                <button type="button" onClick={handleRemoveAvatar} className="absolute -top-1 -right-1 p-2.5 rounded-full bg-rose-500 text-white border-4 border-white cursor-pointer hover:bg-rose-600 transition-colors shadow-md z-10" title="Remove profile picture">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Details & Actions */}
+          <div className="flex-1 w-full mt-2 sm:mt-0 z-10">
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
               <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  New Password <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Min 8 characters"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
-                  Confirm New Password <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[13.5px] text-slate-800 focus:border-[#4355CC] focus:outline-none"
-                />
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  {user ? `${user.firstName} ${user.lastName}` : "Employee Profile"}
+                  <CheckCircle2 className="w-6 h-6 text-[#4355CC]" />
+                </h1>
+                <p className="text-[14px] text-slate-500 font-medium mt-1.5 flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-[#4355CC] text-[11px] font-bold uppercase tracking-wider">{user?.role || "Software Engineer"}</span>
+                  <span className="text-slate-400 font-bold">{user?.employeeId || "EMP-1042"}</span>
+                </p>
               </div>
             </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={savingPw}
-                className="px-6 py-2.5 rounded-xl bg-[#1E293B] hover:bg-slate-800 text-white text-[13.5px] font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-              >
-                {savingPw ? "Updating password..." : "Update Password"}
-              </button>
-            </div>
-          </form>
-
+          </div>
         </div>
+
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-slate-200">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as TabId)}
+                className={`flex items-center gap-2 px-5 py-3 rounded-t-xl font-bold text-[14px] transition-colors whitespace-nowrap ${
+                  isActive 
+                    ? "bg-white text-[#4355CC] border-t-2 border-l border-r border-[#4355CC]/10 shadow-[0_-4px_10px_rgb(0,0,0,0.02)]" 
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? "text-[#4355CC]" : "text-slate-400"}`} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab Content */}
+        <div className="min-h-[500px]">
+          {activeTab === "personal" && <PersonalInfoTab />}
+          {activeTab === "employment" && <EmploymentInfoTab />}
+          {activeTab === "compliance" && <ComplianceTab />}
+          {activeTab === "documents" && <DocumentsTab />}
+          {activeTab === "salary" && <SalaryStructureTab />}
+        </div>
+
       </main>
-    </>
+    </div>
   );
 };

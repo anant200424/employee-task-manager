@@ -2,7 +2,16 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, ChevronDown, LogOut, User as UserIcon, Shield, Search } from "lucide-react";
+import {
+  Bell,
+  LogOut,
+  User as UserIcon,
+  Search,
+  MessageSquare,
+  HelpCircle,
+  Sun,
+  Moon // Added theme icons
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 interface TopbarProps {
@@ -15,10 +24,33 @@ export const Topbar = ({ title, subtitle }: TopbarProps) => {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    const savedTheme = (localStorage.getItem("theme") as "light" | "dark") || "light";
+    setTheme(savedTheme);
+    if (savedTheme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    localStorage.setItem("theme", newTheme);
+    if (newTheme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -34,50 +66,88 @@ export const Topbar = ({ title, subtitle }: TopbarProps) => {
     : "EM";
 
   return (
-    <header className="flex items-center justify-between border-b border-slate-200/80 bg-white px-5 py-3.5 lg:px-8">
-      {/* Title / Search */}
+    <header className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/50 bg-white/60 backdrop-blur-xl px-8 py-5 gap-4 sticky top-0 z-40">
+      {/* Title */}
       <div>
-        <h1 className="text-[20px] sm:text-[22px] font-bold text-[#0F172A] tracking-tight">
+        <h1 className="text-[24px] font-extrabold text-[#0F172A] tracking-tight leading-none mb-1.5">
           {title}
         </h1>
-        {subtitle && <p className="text-[13px] text-slate-500 font-normal">{subtitle}</p>}
+        {subtitle && (
+          <p className="text-[14px] text-slate-500 font-medium">{subtitle}</p>
+        )}
       </div>
 
       {/* Right Actions */}
-      <div className="flex items-center gap-3">
-        {/* Department Badge */}
-        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200">
-          <Shield className="w-3.5 h-3.5 text-[#4355CC]" />
-          <span>{user?.department || "Engineering"}</span>
+      <div className="flex items-center gap-5">
+        {/* Search */}
+        <div className="hidden md:flex items-center relative">
+           <Search className="w-4 h-4 text-slate-400 absolute left-3" />
+           <input 
+             type="text" 
+             placeholder="Search" 
+             className="pl-9 pr-14 py-2 w-[240px] rounded-xl border border-slate-200 text-[13px] font-medium placeholder:text-slate-400 focus:outline-none focus:border-[#5B5FEF] focus:ring-1 focus:ring-[#5B5FEF] transition-all"
+           />
+           <div className="absolute right-2 text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+             Cmd+K
+           </div>
         </div>
 
-        {/* Notifications */}
-        <button
-          className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
-          aria-label="Notifications"
-        >
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[#4355CC]" />
-        </button>
+        <div className="flex items-center gap-3 border-r border-slate-200 pr-5">
+          {/* Theme Toggle (Dark/Light mode) */}
+          <button
+            onClick={toggleTheme}
+            className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+            aria-label="Toggle Theme"
+          >
+            {theme === "dark" ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5 text-slate-500" />}
+          </button>
+
+          {/* Notifications */}
+          <button
+            onClick={() => router.push("/notifications")}
+            className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+            aria-label="Notifications"
+          >
+            <Bell className="h-5 w-5" />
+            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 border border-white" />
+          </button>
+          
+          {/* Chat */}
+          <button
+            onClick={() => router.push("/empty-states")}
+            className="hidden sm:block relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+            aria-label="Messages"
+          >
+            <MessageSquare className="h-5 w-5" />
+          </button>
+
+          {/* Help */}
+          <button
+            onClick={() => router.push("/help")}
+            className="hidden sm:block relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+            aria-label="Help"
+          >
+            <HelpCircle className="h-5 w-5" />
+          </button>
+        </div>
 
         {/* User Dropdown */}
         <div ref={menuRef} className="relative">
           <button
             onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-2.5 rounded-xl py-1 pl-1.5 pr-2.5 hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all cursor-pointer"
+            className="flex items-center gap-2 rounded-full border border-transparent hover:border-slate-200 transition-all cursor-pointer"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1E293B] text-xs font-bold text-white shadow-sm">
-              {initials}
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1E293B] text-xs font-bold text-white overflow-hidden">
+              {user?.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={user.firstName}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                initials
+              )}
             </span>
-            <div className="hidden text-left sm:block">
-              <span className="block text-[13px] font-semibold text-slate-800 leading-tight">
-                {user ? `${user.firstName} ${user.lastName}` : "Employee"}
-              </span>
-              <span className="block text-[11px] text-slate-400 font-medium">
-                {user?.role || "Software Engineer"}
-              </span>
-            </div>
-            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
           </button>
 
           {open && (
@@ -86,9 +156,8 @@ export const Topbar = ({ title, subtitle }: TopbarProps) => {
                 <p className="text-[13px] font-bold text-slate-900">
                   {user ? `${user.firstName} ${user.lastName}` : ""}
                 </p>
-                <p className="text-[11.5px] text-slate-400 truncate">{user?.email}</p>
-                <p className="mt-1 text-[11px] font-semibold text-[#4355CC] bg-blue-50 px-2 py-0.5 rounded-md inline-block">
-                  ID: {user?.employeeId || "EMP-1042"}
+                <p className="text-[11.5px] text-slate-400 truncate">
+                  {user?.email}
                 </p>
               </div>
 

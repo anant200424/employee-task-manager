@@ -12,6 +12,43 @@ export interface User {
   employeeId?: string;
   isEmailVerified: boolean;
   avatarUrl?: string;
+  coverUrl?: string;
+  employmentInfo?: {
+    joiningDate?: string;
+    workLocation?: string;
+    employmentType?: string;
+    manager?: string;
+  };
+  compliance?: {
+    panNumber?: string;
+    aadharNumber?: string;
+    uanNumber?: string;
+    taxRegime?: "old" | "new";
+  };
+  documents?: {
+    _id?: string;
+    title: string;
+    url: string;
+    type: string;
+    uploadedAt: string;
+  }[];
+  salary?: {
+    basic: number;
+    hra: number;
+    allowances: number;
+    pf: number;
+    totalCTC: number;
+  };
+  privacySettings?: {
+    dataSharingConsent: boolean;
+    marketingEmails: boolean;
+  };
+  notificationPreferences?: {
+    emailAlerts: boolean;
+    pushNotifications: boolean;
+    weeklyDigest: boolean;
+    theme: "light" | "dark" | "system";
+  };
   createdAt: string;
 }
 

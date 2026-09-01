@@ -9,6 +9,7 @@ import hpp from "hpp";
 import authRoutes from "./routes/authRoutes";
 import userRoutes from "./routes/userRoutes";
 import taskRoutes from "./routes/taskRoutes";
+import messageRoutes from "./routes/messageRoutes";
 import { notFound, errorHandler } from "./middleware/errorHandler";
 
 const app: Application = express();
@@ -45,6 +46,7 @@ app.get("/", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/messages", messageRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

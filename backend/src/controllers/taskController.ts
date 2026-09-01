@@ -5,8 +5,20 @@ import { ApiError } from "../utils/ApiError";
 import { sendSuccess } from "../utils/ApiResponse";
 import { AuthRequest } from "../middleware/auth";
 
-// @route  GET /api/tasks
-export const getTasks = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+/**
+ * Retrieves a list of tasks for the authenticated user based on query filters.
+ * Automatically seeds default onboarding tasks if the user has no tasks yet.
+ * 
+ * @route  GET /api/tasks
+ * @query  status - Filter by task status (e.g., 'todo', 'in_progress')
+ * @query  priority - Filter by task priority
+ * @query  search - Text search query for task title
+ */
+export const getTasks = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const userId = req.user?.id;
     const { status, priority, search } = req.query;
@@ -14,8 +26,12 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
     const query: Record<string, unknown> = {};
 
     // Filter by assigned user or global department tasks
-    if (userId) {
-      query.$or = [{ assignedTo: userId }, { assignedTo: { $exists: false } }, { assignedTo: null }];
+    if (userId && req.user?.role !== "admin") {
+      query.$or = [
+        { assignedTo: userId },
+        { assignedTo: { $exists: false } },
+        { assignedTo: null },
+      ];
     }
 
     if (status && status !== "all") {
@@ -30,7 +46,7 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
       query.title = { $regex: search, $options: "i" };
     }
 
-    let tasks = await Task.find(query).sort({ createdAt: -1 });
+    let tasks = await Task.find(query).sort({ createdAt: -1 }).lean();
 
     // If user has 0 tasks, seed initial default tasks for a great out-of-the-box experience
     if (tasks.length === 0 && (!status || status === "all") && !search) {
@@ -40,7 +56,8 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
       const defaultTasks: Array<Partial<ITask>> = [
         {
           title: "Complete EmpSphere onboarding & security overview",
-          description: "Review enterprise team security guidelines, 2FA setup, and department access policies.",
+          description:
+            "Review enterprise team security guidelines, 2FA setup, and department access policies.",
           status: "in_progress",
           priority: "high",
           assignedTo: userId as never,
@@ -50,7 +67,8 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
         },
         {
           title: "Align with team lead on Q3 sprint deliverables",
-          description: "Sync with product manager and design team on upcoming task milestone roadmaps.",
+          description:
+            "Sync with product manager and design team on upcoming task milestone roadmaps.",
           status: "todo",
           priority: "urgent",
           assignedTo: userId as never,
@@ -60,7 +78,8 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
         },
         {
           title: "Review daily task manager analytics report",
-          description: "Analyze cross-functional team productivity metrics and resolve pending pull requests.",
+          description:
+            "Analyze cross-functional team productivity metrics and resolve pending pull requests.",
           status: "review",
           priority: "medium",
           assignedTo: userId as never,
@@ -70,7 +89,8 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
         },
         {
           title: "Setup development workspace and API credentials",
-          description: "Configure local environment variables, MongoDB access, and JWT token authentication.",
+          description:
+            "Configure local environment variables, MongoDB access, and JWT token authentication.",
           status: "completed",
           priority: "low",
           assignedTo: userId as never,
@@ -89,26 +109,54 @@ export const getTasks = async (req: AuthRequest, res: Response, next: NextFuncti
   }
 };
 
-// @route  POST /api/tasks
-export const createTask = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+/**
+ * Creates a new task and assigns it to the authenticated user.
+ * 
+ * @route  POST /api/tasks
+ * @body   title, description, status, priority, dueDate, department, tags
+ */
+export const createTask = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
-    const { title, description, status, priority, dueDate, department, tags } = req.body;
+    const { title, description, status, priority, dueDate, department, tags } =
+      req.body;
 
-    if (!title || title.trim().length === 0) {
+    if (!title || String(title).trim().length === 0) {
       throw new ApiError(400, "Task title is required.");
     }
 
-    const user = req.user?.id ? await User.findById(req.user.id) : null;
+    let user = null;
+    if (req.user?.id) {
+      user = await User.findById(req.user.id);
+    }
+
+    let parsedDueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Default 7 days from now
+    if (dueDate) {
+      const parsed = new Date(dueDate);
+      if (!isNaN(parsed.getTime())) {
+        parsedDueDate = parsed;
+      }
+    }
+
+    let parsedTags: string[] = [];
+    if (Array.isArray(tags)) {
+      parsedTags = tags;
+    } else if (typeof tags === "string" && tags.trim().length > 0) {
+      parsedTags = tags.split(",").map((t: string) => t.trim());
+    }
 
     const task = await Task.create({
-      title: title.trim(),
-      description: description ? description.trim() : "",
+      title: String(title).trim(),
+      description: description ? String(description).trim() : "",
       status: status || "in_progress",
       priority: priority || "medium",
-      dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      assignedTo: req.user?.id,
+      dueDate: parsedDueDate,
+      assignedTo: req.user?.id || undefined,
       department: department || user?.department || "Engineering",
-      tags: Array.isArray(tags) ? tags : typeof tags === "string" ? tags.split(",").map((t: string) => t.trim()) : [],
+      tags: parsedTags,
     });
 
     sendSuccess(res, 201, "Task created successfully.", { task });
@@ -117,8 +165,18 @@ export const createTask = async (req: AuthRequest, res: Response, next: NextFunc
   }
 };
 
-// @route  PATCH /api/tasks/:id
-export const updateTask = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+/**
+ * Updates an existing task by its ID.
+ * 
+ * @route  PATCH /api/tasks/:id
+ * @param  id - The task ID to update
+ * @body   title, description, status, priority, dueDate, tags
+ */
+export const updateTask = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const { id } = req.params;
     const { title, description, status, priority, dueDate, tags } = req.body;
@@ -144,8 +202,17 @@ export const updateTask = async (req: AuthRequest, res: Response, next: NextFunc
   }
 };
 
-// @route  DELETE /api/tasks/:id
-export const deleteTask = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+/**
+ * Deletes an existing task by its ID.
+ * 
+ * @route  DELETE /api/tasks/:id
+ * @param  id - The task ID to delete
+ */
+export const deleteTask = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const { id } = req.params;
     const task = await Task.findByIdAndDelete(id);

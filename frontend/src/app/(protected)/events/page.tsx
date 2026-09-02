@@ -88,102 +88,108 @@ export default function EventsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-transparent pb-12">
+    <div className="flex-1 flex flex-col min-h-screen bg-transparent transition-colors duration-300">
       <Topbar
         title="Company Events"
         subtitle="Keep track of upcoming meetings, workshops, and company-wide events."
       />
 
-      <main className="px-5 sm:px-7 lg:px-8 space-y-6 max-w-[1600px] mx-auto mt-6 animate-in fade-in duration-500">
-        
-        {/* Calendar Overview Card */}
-        <div className="bg-white rounded-[24px] p-8 shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
-           <div>
-             <h2 className="text-[24px] font-black text-slate-900">October 2026</h2>
-             <p className="text-[14px] font-medium text-slate-500 mt-1">You have {events.length} upcoming events.</p>
-           </div>
-           <div className="flex items-center gap-3">
-             <button onClick={() => alert("Syncing calendar to Google/Outlook...")} className="px-5 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[13px] font-bold rounded-xl transition-colors border border-slate-200">
-               Sync Calendar
-             </button>
-             {isAdmin && (
-               <button onClick={() => handleOpenModal()} className="bg-[#5B5FEF] hover:bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-[13px] font-bold shadow-md shadow-[#5B5FEF]/20 transition-all">
-                 + Create Event
-               </button>
-             )}
-           </div>
-        </div>
-
-        {/* Events Timeline/List */}
-        <div className="space-y-4">
-          <h3 className="text-[14px] font-bold text-slate-400 uppercase tracking-wider pl-2">Upcoming</h3>
+      <main className="flex-1 p-4 lg:p-8 overflow-y-auto custom-scrollbar">
+        <div className="max-w-[1400px] mx-auto space-y-8">
           
-          <div className="grid grid-cols-1 gap-4">
-             {events.length === 0 ? (
-               <div className="text-center py-12 bg-white rounded-[20px] border border-slate-100">
-                 <p className="text-slate-500 font-medium">No events found. Create one to get started!</p>
-               </div>
-             ) : (
-               events.map((event) => {
-                 const typeColors = {
-                   "Company": "bg-purple-100 text-purple-700",
-                   "Team": "bg-blue-100 text-blue-700",
-                   "Workshop": "bg-amber-100 text-amber-700",
-                   "HR": "bg-emerald-100 text-emerald-700"
-                 }[event.type] || "bg-slate-100 text-slate-700";
+          {/* Calendar Overview Hero */}
+          <div className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#1E293B] to-[#0F172A] dark:from-[#0F172A] dark:to-[#0B1120] p-8 shadow-lg border border-slate-700 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6 shrink-0 transition-colors duration-300">
+             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/20 dark:bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none transition-colors duration-300" />
+             <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#5B5FEF]/20 dark:bg-[#5B5FEF]/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/4 pointer-events-none transition-colors duration-300" />
+             
+             <div className="relative z-10">
+               <h2 className="text-[28px] font-black text-white tracking-tight">October 2026</h2>
+               <p className="text-[15px] font-medium text-slate-400 mt-1">You have <span className="text-white font-bold">{events.length}</span> upcoming events scheduled.</p>
+             </div>
+             
+             <div className="relative z-10 flex items-center gap-3">
+               <button onClick={() => alert("Syncing calendar to Google/Outlook...")} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white text-[13px] font-bold rounded-xl transition-all border border-white/10 backdrop-blur-sm">
+                 Sync Calendar
+               </button>
+               {isAdmin && (
+                 <button onClick={() => handleOpenModal()} className="bg-[#5B5FEF] hover:bg-[#4F46E5] text-white px-5 py-2.5 rounded-xl text-[13px] font-bold shadow-[0_4px_14px_rgba(91,95,239,0.3)] transition-all active:scale-95">
+                   + Create Event
+                 </button>
+               )}
+             </div>
+          </div>
 
-                 const dateParts = event.date.split(" ");
-                 const monthStr = dateParts[0] ? dateParts[0].substring(0, 3) : "Day";
-                 const dayStr = dateParts[1] ? dateParts[1].replace(",", "") : "00";
+          {/* Events Timeline/List */}
+          <div className="space-y-4">
+            <h3 className="text-[14px] font-extrabold text-slate-500 uppercase tracking-widest pl-2">Upcoming Events</h3>
+            
+            <div className="grid grid-cols-1 gap-4">
+               {events.length === 0 ? (
+                 <div className="text-center py-16 bg-white rounded-[24px] shadow-sm border border-slate-200">
+                   <p className="text-slate-500 font-medium">No events found. Create one to get started!</p>
+                 </div>
+               ) : (
+                 events.map((event) => {
+                   const typeColors = {
+                     "Company": "bg-purple-100 text-purple-700 ring-purple-100",
+                     "Team": "bg-blue-100 text-blue-700 ring-blue-100",
+                     "Workshop": "bg-amber-100 text-amber-700 ring-amber-100",
+                     "HR": "bg-emerald-100 text-emerald-700 ring-emerald-100"
+                   }[event.type] || "bg-slate-100 text-slate-700 ring-slate-100";
 
-                 return (
-                   <div key={event.id} onClick={isAdmin ? () => handleOpenModal(event) : undefined} className={`bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 hover:border-[#5B5FEF]/30 hover:shadow-md transition-all flex flex-col md:flex-row md:items-center gap-6 group ${isAdmin ? "cursor-pointer" : ""}`}>
-                      
-                      {/* Date Block */}
-                      <div className="flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-slate-50 border border-slate-100 shrink-0 group-hover:bg-[#5B5FEF] group-hover:border-[#5B5FEF] group-hover:text-white transition-colors">
-                         <span className="text-[11px] font-bold uppercase tracking-wide opacity-60">{monthStr}</span>
-                         <span className="text-[28px] font-black leading-none mt-0.5">{dayStr}</span>
-                      </div>
+                   const dateParts = event.date.split(" ");
+                   const monthStr = dateParts[0] ? dateParts[0].substring(0, 3) : "Day";
+                   const dayStr = dateParts[1] ? dateParts[1].replace(",", "") : "00";
 
-                      {/* Details */}
-                      <div className="flex-1 min-w-0">
-                         <div className="flex items-center gap-3 mb-2">
-                           <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${typeColors}`}>
-                             {event.type}
-                           </span>
-                         </div>
-                         <h4 className="text-[18px] font-extrabold text-slate-900 group-hover:text-[#5B5FEF] transition-colors truncate">
-                           {event.title}
-                         </h4>
-                         
-                         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-[13px] font-medium text-slate-500">
-                            <div className="flex items-center gap-1.5">
-                               <Clock className="w-4 h-4 text-slate-400" />
-                               {event.time}
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                               <MapPin className="w-4 h-4 text-slate-400" />
-                               {event.location}
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                               <Users className="w-4 h-4 text-slate-400" />
-                               {event.attendees} attending
-                            </div>
-                         </div>
-                      </div>
-
-                      {/* Action */}
-                      {isAdmin && (
-                        <div className="shrink-0 flex items-center justify-end">
-                           <button className="w-10 h-10 rounded-full border-2 border-slate-200 flex items-center justify-center text-slate-400 group-hover:border-[#5B5FEF] group-hover:text-[#5B5FEF] group-hover:bg-[#EEF0FF] transition-all">
-                             <Edit2 className="w-4 h-4" />
-                           </button>
+                   return (
+                     <div key={event.id} onClick={isAdmin ? () => handleOpenModal(event) : undefined} className={`bg-white dark:bg-slate-900 rounded-[20px] p-6 shadow-sm border border-slate-200 dark:border-slate-800 hover:border-[#5B5FEF] dark:hover:border-[#5B5FEF] hover:shadow-md transition-all duration-300 transform hover:-translate-y-0.5 flex flex-col md:flex-row md:items-center gap-6 group ${isAdmin ? "cursor-pointer" : ""}`}>
+                        
+                        {/* Date Block */}
+                        <div className="flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-[#EEF0FF] dark:bg-[#5B5FEF]/10 border-2 border-white dark:border-slate-800 shadow-sm shrink-0 group-hover:bg-[#5B5FEF] group-hover:text-white text-[#5B5FEF] dark:text-[#818CF8] group-hover:dark:text-white transition-all">
+                           <span className="text-[11px] font-extrabold uppercase tracking-widest opacity-80">{monthStr}</span>
+                           <span className="text-[28px] font-black leading-none mt-0.5">{dayStr}</span>
                         </div>
-                      )}
-                   </div>
-                 )
-               })
-             )}
+
+                        {/* Details */}
+                        <div className="flex-1 min-w-0">
+                           <div className="flex items-center gap-3 mb-2">
+                             <span className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest ring-2 ring-offset-1 ${typeColors}`}>
+                               {event.type}
+                             </span>
+                           </div>
+                           <h4 className="text-[18px] font-extrabold text-slate-900 dark:text-white group-hover:text-[#5B5FEF] dark:group-hover:text-[#818CF8] transition-colors truncate">
+                             {event.title}
+                           </h4>
+                           
+                           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-[13px] font-bold text-slate-500 dark:text-slate-400">
+                              <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-700/50 transition-colors">
+                                 <Clock className="w-4 h-4 text-[#5B5FEF] dark:text-[#818CF8]" />
+                                 {event.time}
+                              </div>
+                              <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-700/50 transition-colors">
+                                 <MapPin className="w-4 h-4 text-[#5B5FEF] dark:text-[#818CF8]" />
+                                 {event.location}
+                              </div>
+                              <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-700/50 transition-colors">
+                                 <Users className="w-4 h-4 text-[#5B5FEF] dark:text-[#818CF8]" />
+                                 {event.attendees} attending
+                              </div>
+                           </div>
+                        </div>
+
+                        {/* Action */}
+                        {isAdmin && (
+                          <div className="shrink-0 flex items-center justify-end">
+                             <button className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-500 group-hover:border-transparent group-hover:text-white group-hover:bg-[#5B5FEF] transition-all shadow-sm">
+                               <Edit2 className="w-4 h-4" />
+                             </button>
+                          </div>
+                        )}
+                     </div>
+                   )
+                 })
+               )}
+            </div>
           </div>
         </div>
       </main>

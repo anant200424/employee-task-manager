@@ -1,10 +1,12 @@
 import { Router, Response, NextFunction } from "express";
 import Message from "../models/Message";
 import User from "../models/User";
+import Notification from "../models/Notification";
 import { protect } from "../middleware/auth";
 import { AuthRequest } from "../middleware/auth";
 import { ApiError } from "../utils/ApiError";
 import { sendSuccess } from "../utils/ApiResponse";
+import mongoose from "mongoose";
 
 const router = Router();
 
@@ -50,6 +52,33 @@ router.post("/", async (req: AuthRequest, res: Response, next: NextFunction) => 
       content: String(content).trim(),
       type: messageType,
     });
+
+    // Automatically notify all other active employees/users
+    const otherUsers = await User.find({ _id: { $ne: user._id } }).select("_id");
+    if (otherUsers.length > 0) {
+      const senderFullName = `${user.firstName} ${user.lastName}`;
+      const title =
+        messageType === "announcement"
+          ? "📢 New Company Announcement"
+          : "💬 Workspace Hub Message";
+
+      const snippet =
+        String(content).trim().length > 70
+          ? `${String(content).trim().substring(0, 70)}...`
+          : String(content).trim();
+
+      const notifs = otherUsers.map((u) => ({
+        recipient: u._id,
+        sender: user._id,
+        senderName: senderFullName,
+        title,
+        message: `${senderFullName}: "${snippet}"`,
+        type: messageType === "announcement" ? "alert" : "event",
+        read: false,
+      }));
+
+      await Notification.insertMany(notifs);
+    }
 
     sendSuccess(res, 201, "Message posted successfully.", { message });
   } catch (error) {

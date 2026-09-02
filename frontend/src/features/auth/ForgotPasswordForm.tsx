@@ -43,8 +43,10 @@ export const ForgotPasswordForm = () => {
           Check your inbox
         </h2>
         <p className="mt-2 text-[14px] leading-relaxed text-slate-600">
-          If an account exists for <span className="font-semibold text-slate-800">{email}</span>, we&apos;ve sent a
-          link to reset your password. The link expires in 30 minutes.
+          If an account exists for{" "}
+          <span className="font-semibold text-slate-800">{email}</span>,
+          we&apos;ve sent a link to reset your password. The link expires in 30
+          minutes.
         </p>
         <Link
           href="/login"
@@ -64,7 +66,8 @@ export const ForgotPasswordForm = () => {
           Forgot password?
         </h2>
         <p className="mt-1.5 text-[13.5px] text-slate-500 font-normal">
-          Enter the email linked to your account and we&apos;ll send you a reset link.
+          Enter the email linked to your account and we&apos;ll send you a reset
+          link.
         </p>
       </div>
 

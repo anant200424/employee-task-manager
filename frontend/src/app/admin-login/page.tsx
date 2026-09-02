@@ -70,6 +70,9 @@ export default function AdminLoginPage() {
     }
   };
 
+  const isFormFilled = Boolean(email.trim() !== "" && password.trim() !== "");
+  const canSubmit = isFormFilled && !isSubmitting;
+
   return (
     <main className="relative min-h-screen w-full bg-gradient-to-br from-[#0F172A] via-[#1E293B] to-[#0F172A] text-slate-200 flex flex-col justify-between p-6 sm:p-10 lg:p-14 overflow-hidden">
       {/* Background Orbs */}
@@ -97,7 +100,7 @@ export default function AdminLoginPage() {
       </header>
 
       {/* Main Container */}
-      <div className="relative z-10 w-full max-w-[450px] mx-auto my-auto flex flex-col items-center">
+      <div className="relative z-10 w-full max-w-[490px] mx-auto my-auto flex flex-col items-center">
         {/* Shield Icon */}
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#4355CC] to-[#3B82F6] flex items-center justify-center text-white mb-6 shadow-[0_8px_30px_rgb(59,130,246,0.2)]">
           <Shield className="w-8 h-8" />
@@ -124,11 +127,11 @@ export default function AdminLoginPage() {
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
             {/* Admin Email */}
             <div>
-              <label className="block text-[13px] font-semibold text-slate-300 mb-1.5">
+              <label className="block text-[13.5px] font-bold text-slate-300 mb-1.5">
                 Admin Email <span className="text-[#3B82F6]">*</span>
               </label>
               <div className="relative">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-500 pointer-events-none" />
                 <input
                   type="email"
                   value={email}
@@ -137,16 +140,16 @@ export default function AdminLoginPage() {
                     if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
                   }}
                   placeholder="admin@empsphere.com"
-                  className={`w-full rounded-xl border ${
+                  className={`w-full rounded-xl border-2 ${
                     errors.email
                       ? "border-red-500/50 bg-red-500/5"
                       : "border-white/10 bg-white/[0.02] hover:border-white/20"
-                  } py-2.5 pl-10 pr-3.5 text-[13.5px] text-white placeholder:text-slate-500 focus:bg-white/[0.04] focus:border-[#4355CC] focus:ring-2 focus:ring-[#4355CC]/20 focus:outline-none shadow-sm transition-all`}
+                  } py-3 pl-11 pr-4 text-[14px] font-bold text-white placeholder:text-slate-500 focus:bg-white/[0.04] focus:border-[#4355CC] focus:ring-4 focus:ring-[#4355CC]/20 focus:outline-none shadow-2xs transition-all`}
                   autoComplete="email"
                 />
               </div>
               {errors.email && (
-                <p className="mt-1 text-[12px] font-medium text-red-400 flex items-center gap-1">
+                <p className="mt-1 text-[12px] font-bold text-red-400 flex items-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5" />
                   {errors.email}
                 </p>
@@ -155,11 +158,11 @@ export default function AdminLoginPage() {
 
             {/* Password */}
             <div>
-              <label className="block text-[13px] font-semibold text-slate-300 mb-1.5">
+              <label className="block text-[13.5px] font-bold text-slate-300 mb-1.5">
                 Password <span className="text-[#3B82F6]">*</span>
               </label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-500 pointer-events-none" />
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
@@ -168,28 +171,28 @@ export default function AdminLoginPage() {
                     if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
                   }}
                   placeholder="Enter admin password"
-                  className={`w-full rounded-xl border ${
+                  className={`w-full rounded-xl border-2 ${
                     errors.password
                       ? "border-red-500/50 bg-red-500/5"
                       : "border-white/10 bg-white/[0.02] hover:border-white/20"
-                  } py-2.5 pl-10 pr-10 text-[13.5px] text-white placeholder:text-slate-500 focus:bg-white/[0.04] focus:border-[#4355CC] focus:ring-2 focus:ring-[#4355CC]/20 focus:outline-none shadow-sm transition-all`}
+                  } py-3 pl-11 pr-11 text-[14px] font-bold text-white placeholder:text-slate-500 focus:bg-white/[0.04] focus:border-[#4355CC] focus:ring-4 focus:ring-[#4355CC]/20 focus:outline-none shadow-2xs transition-all`}
                   autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
                   tabIndex={-1}
                 >
                   {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
+                    <EyeOff className="w-4.5 h-4.5" />
                   ) : (
-                    <Eye className="w-4 h-4" />
+                    <Eye className="w-4.5 h-4.5" />
                   )}
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[12px] font-medium text-red-400 flex items-center gap-1">
+                <p className="mt-1 text-[12px] font-bold text-red-400 flex items-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5" />
                   {errors.password}
                 </p>
@@ -200,15 +203,20 @@ export default function AdminLoginPage() {
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#4355CC] to-[#3B82F6] hover:from-[#3747B8] hover:to-[#2563EB] active:scale-[0.99] py-3 text-[14.5px] font-medium text-white shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                disabled={!canSubmit}
+                className={`group relative w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[15px] font-extrabold text-white transition-all overflow-hidden ${
+                  !canSubmit
+                    ? "bg-[#4355CC]/40 text-white/70 cursor-not-allowed opacity-50 backdrop-blur-xs pointer-events-none shadow-none"
+                    : "bg-gradient-to-r from-[#4355CC] to-[#3B82F6] hover:from-[#3747B8] hover:to-[#2563EB] hover:shadow-[0_8px_20px_-6px_rgba(67,85,204,0.5)] active:scale-[0.99] cursor-pointer"
+                }`}
               >
+                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer" />
                 {isSubmitting ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
                     <span>Enter Portal</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="w-4.5 h-4.5 transition-transform group-hover:translate-x-1" />
                   </>
                 )}
               </button>

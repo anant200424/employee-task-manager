@@ -20,7 +20,9 @@ export const FlagImage = ({ iso, size = "sm" }: FlagImageProps) => {
 
   if (failed) {
     return (
-      <span className={`flex ${dims} items-center justify-center rounded-[3px] bg-ink-100 text-[9px] font-bold uppercase leading-none text-ink-600`}>
+      <span
+        className={`flex ${dims} items-center justify-center rounded-[3px] bg-ink-100 text-[9px] font-bold uppercase leading-none text-ink-600`}
+      >
         {iso.toUpperCase()}
       </span>
     );

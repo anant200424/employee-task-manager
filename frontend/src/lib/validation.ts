@@ -55,7 +55,7 @@ export const normalizeFirstName = (value: string): string => {
  */
 export const validateName = (
   value: string,
-  label: string
+  label: string,
 ): string | undefined => {
   const trimmed = value.trim();
 
@@ -69,6 +69,10 @@ export const validateName = (
 
   if (trimmed.length > 40) {
     return `${label} cannot exceed 40 characters.`;
+  }
+
+  if (/\s{2,}/.test(trimmed)) {
+    return `${label} cannot contain multiple consecutive spaces.`;
   }
 
   if (!NAME_REGEX.test(trimmed)) {
@@ -88,9 +92,7 @@ export const validateName = (
  * - Spaces NOT allowed
  * - Only English letters A-Z / a-z allowed
  */
-export const validateFirstName = (
-  value: string
-): string | undefined => {
+export const validateFirstName = (value: string): string | undefined => {
   if (!value) {
     return "Please enter your first name.";
   }
@@ -114,11 +116,7 @@ export const validateFirstName = (
   return undefined;
 };
 
-
-
-export const validateEmail = (
-  value: string
-): string | undefined => {
+export const validateEmail = (value: string): string | undefined => {
   const email = value.trim();
 
   if (!email) {
@@ -141,10 +139,7 @@ export const validateEmail = (
   }
 
   // Cannot start or end with a dot
-  if (
-    email.startsWith(".") ||
-    email.endsWith(".")
-  ) {
+  if (email.startsWith(".") || email.endsWith(".")) {
     return "Please enter a valid email address.";
   }
 
@@ -156,9 +151,7 @@ export const validateEmail = (
   return undefined;
 };
 
-export const validateDateOfBirth = (
-  value: string
-): string | undefined => {
+export const validateDateOfBirth = (value: string): string | undefined => {
   if (!value) {
     return "Please enter your date of birth.";
   }
@@ -187,7 +180,7 @@ export const validateDateOfBirth = (
 // numbering plan using libphonenumber-js.
 export const validatePhoneNumber = (
   digits: string,
-  countryIso: string
+  countryIso: string,
 ): string | undefined => {
   const country = getCountryByIso(countryIso);
   const cleaned = digits.replace(/\D/g, "");
@@ -196,17 +189,11 @@ export const validatePhoneNumber = (
     return "Please enter a valid mobile number.";
   }
 
-  if (
-    country &&
-    cleaned.length !== country.exampleDigits
-  ) {
+  if (country && cleaned.length !== country.exampleDigits) {
     return `Enter a valid ${country.exampleDigits}-digit mobile number for ${country.name}`;
   }
 
-  const isValid = isValidPhoneNumber(
-    cleaned,
-    countryIso as CountryCode
-  );
+  const isValid = isValidPhoneNumber(cleaned, countryIso as CountryCode);
 
   if (!isValid) {
     return `Please enter a valid mobile number for ${
@@ -220,12 +207,7 @@ export const validatePhoneNumber = (
 export interface PasswordStrength {
   score: number;
 
-  label:
-    | "Very weak"
-    | "Weak"
-    | "Fair"
-    | "Strong"
-    | "Very strong";
+  label: "Very weak" | "Weak" | "Fair" | "Strong" | "Very strong";
 
   checks: {
     length: boolean;
@@ -236,9 +218,7 @@ export interface PasswordStrength {
   };
 }
 
-export const getPasswordStrength = (
-  password: string
-): PasswordStrength => {
+export const getPasswordStrength = (password: string): PasswordStrength => {
   const checks = {
     length: password.length >= 8,
     lowercase: /[a-z]/.test(password),
@@ -247,13 +227,9 @@ export const getPasswordStrength = (
     special: /[^A-Za-z0-9]/.test(password),
   };
 
-  const score =
-    Object.values(checks).filter(Boolean).length - 1;
+  const score = Object.values(checks).filter(Boolean).length - 1;
 
-  const clampedScore = Math.max(
-    0,
-    Math.min(4, score)
-  );
+  const clampedScore = Math.max(0, Math.min(4, score));
 
   const labels: PasswordStrength["label"][] = [
     "Very weak",
@@ -270,9 +246,7 @@ export const getPasswordStrength = (
   };
 };
 
-export const validatePassword = (
-  value: string
-): string | undefined => {
+export const validatePassword = (value: string): string | undefined => {
   if (!value) {
     return "Please enter a valid password.";
   }
@@ -333,24 +307,19 @@ export const validateDateOfJoining = (value: string): string | undefined => {
 };
 
 export const validateRegisterForm = (
-  data: RegisterFormData
+  data: RegisterFormData,
 ): FormErrors<RegisterFormData> => {
   const errors: FormErrors<RegisterFormData> = {};
 
   // First Name uses strict validation.
-  const firstNameErr = validateFirstName(
-    data.firstName
-  );
+  const firstNameErr = validateFirstName(data.firstName);
 
   if (firstNameErr) {
     errors.firstName = firstNameErr;
   }
 
   // Last Name keeps existing validation.
-  const lastNameErr = validateName(
-    data.lastName,
-    "Last name"
-  );
+  const lastNameErr = validateName(data.lastName, "Last name");
 
   if (lastNameErr) {
     errors.lastName = lastNameErr;
@@ -362,10 +331,7 @@ export const validateRegisterForm = (
     errors.email = emailErr;
   }
 
-  const phoneErr = validatePhoneNumber(
-    data.phoneNumber,
-    data.countryCode
-  );
+  const phoneErr = validatePhoneNumber(data.phoneNumber, data.countryCode);
 
   if (phoneErr) {
     errors.phoneNumber = phoneErr;
@@ -391,22 +357,16 @@ export const validateRegisterForm = (
     errors.dateOfBirth = dobErr;
   }
 
-  const passwordErr = validatePassword(
-    data.password
-  );
+  const passwordErr = validatePassword(data.password);
 
   if (passwordErr) {
     errors.password = passwordErr;
   }
 
   if (!data.confirmPassword) {
-    errors.confirmPassword =
-      "Please confirm your password.";
-  } else if (
-    data.password !== data.confirmPassword
-  ) {
-    errors.confirmPassword =
-      "Passwords do not match.";
+    errors.confirmPassword = "Please confirm your password.";
+  } else if (data.password !== data.confirmPassword) {
+    errors.confirmPassword = "Password not match.";
   }
 
   if (!data.agreeToTerms) {
@@ -418,7 +378,7 @@ export const validateRegisterForm = (
 };
 
 export const validateLoginForm = (
-  data: LoginFormData
+  data: LoginFormData,
 ): FormErrors<LoginFormData> => {
   const errors: FormErrors<LoginFormData> = {};
 
@@ -436,26 +396,20 @@ export const validateLoginForm = (
 };
 
 export const validateResetPasswordForm = (
-  data: ResetPasswordFormData
+  data: ResetPasswordFormData,
 ): FormErrors<ResetPasswordFormData> => {
   const errors: FormErrors<ResetPasswordFormData> = {};
 
-  const passwordErr = validatePassword(
-    data.password
-  );
+  const passwordErr = validatePassword(data.password);
 
   if (passwordErr) {
     errors.password = passwordErr;
   }
 
   if (!data.confirmPassword) {
-    errors.confirmPassword =
-      "Please confirm your password.";
-  } else if (
-    data.password !== data.confirmPassword
-  ) {
-    errors.confirmPassword =
-      "Password not match.";
+    errors.confirmPassword = "Please confirm your password.";
+  } else if (data.password !== data.confirmPassword) {
+    errors.confirmPassword = "Password not match.";
   }
 
   return errors;

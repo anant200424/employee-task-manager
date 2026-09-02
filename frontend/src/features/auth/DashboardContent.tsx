@@ -1,24 +1,40 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
+  Calendar as CalendarIcon,
+  Bell,
+  MoreHorizontal,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
-  Loader2,
-  Trash2,
+  Clock,
+  AlertCircle,
+  PlayCircle,
+  TrendingUp,
+  Activity,
+  ArrowRight,
   CheckSquare,
-  Search
+  Sparkles,
+  UserCheck,
+  Building2,
+  Users,
+  Zap,
+  Award,
+  ShieldCheck,
+  Plus,
+  FileText,
 } from "lucide-react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { api } from "@/lib/api";
 import { Task } from "@/types/auth";
+import { DashboardSkeleton } from "@/components/ui/Skeleton";
+import Link from "next/link";
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
-  AreaChart,
-  Area,
   PieChart,
   Pie,
   Cell,
@@ -26,106 +42,57 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar
 } from "recharts";
 
-interface DashboardStats {
-  label: string;
-  value: number;
-}
-
-interface ActivityItem {
-  title: string;
-  time: string;
-}
-
-const mockLineData = [
-  { name: "Mon", completed: 12, inProgress: 8, pending: 4 },
-  { name: "Tue", completed: 18, inProgress: 10, pending: 5 },
-  { name: "Wed", completed: 15, inProgress: 15, pending: 8 },
-  { name: "Thu", completed: 22, inProgress: 12, pending: 6 },
-  { name: "Fri", completed: 28, inProgress: 14, pending: 4 },
-  { name: "Sat", completed: 10, inProgress: 5, pending: 2 },
-  { name: "Sun", completed: 5, inProgress: 3, pending: 1 },
-];
-
-const mockSalaryData = [
-  { name: "Jan", Engineering: 45000, Design: 24000, HR: 18000 },
-  { name: "Feb", Engineering: 47000, Design: 25000, HR: 18500 },
-  { name: "Mar", Engineering: 46000, Design: 24500, HR: 19000 },
-  { name: "Apr", Engineering: 52000, Design: 27000, HR: 20000 },
-  { name: "May", Engineering: 51000, Design: 26000, HR: 20000 },
-  { name: "Jun", Engineering: 54000, Design: 28000, HR: 21000 },
-];
-
-const mockAttendanceData = [
-  { name: "W1", present: 96, late: 3, absent: 1 },
-  { name: "W2", present: 98, late: 2, absent: 0 },
-  { name: "W3", present: 92, late: 5, absent: 3 },
-  { name: "W4", present: 97, late: 2, absent: 1 },
-];
-
-const mockPerformanceData = [
-  { name: "Excellent", value: 45, color: "#10B981" },
-  { name: "Good", value: 35, color: "#5B5FEF" },
-  { name: "Average", value: 15, color: "#F59E0B" },
-  { name: "Poor", value: 5, color: "#EF4444" },
-];
+const getStoredTasks = (): Task[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const saved = localStorage.getItem("nexus_cached_tasks");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+};
 
 export const DashboardContent = () => {
   const { user } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [stats, setStats] = useState<DashboardStats[]>([
-    { label: "Total Tasks", value: 0 },
-    { label: "In Progress", value: 0 },
-    { label: "In Review", value: 0 },
-    { label: "Completed", value: 0 },
-  ]);
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { t } = useLanguage();
+  const isAdmin = user?.role === "admin";
+  const [tasks, setTasks] = useState<Task[]>(getStoredTasks);
+  const [loading, setLoading] = useState<boolean>(() => getStoredTasks().length === 0);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [activeFilter, setActiveFilter] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [showModal, setShowModal] = useState(false);
 
-  // Chart data states
-  const [lineData, setLineData] = useState<any[]>(mockLineData);
-  const [salaryData, setSalaryData] = useState<any[]>(mockSalaryData);
-  const [performanceData, setPerformanceData] = useState<any[]>(mockPerformanceData);
+  // Interactive Calendar State
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
-  // New task form state
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskDesc, setNewTaskDesc] = useState("");
-  const [newTaskPriority, setNewTaskPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
-  const [newTaskStatus] = useState<"todo" | "in_progress" | "review" | "completed">("in_progress");
-  const [newTaskTag, setNewTaskTag] = useState("");
-
-  const loadData = async () => {
-    try {
+  const loadData = async (isBackground = false) => {
+    if (!isBackground && tasks.length === 0) {
       setLoading(true);
-      const [dashRes, tasksRes] = await Promise.allSettled([
+    }
+    try {
+      const [dashRes, tasksRes, analyticsRes] = await Promise.allSettled([
         api.get("/users/dashboard"),
         api.get("/tasks"),
+        api.get("/users/analytics"),
       ]);
 
-      if (dashRes.status === "fulfilled" && dashRes.value.data.data) {
-        if (dashRes.value.data.data.stats) {
-           setStats(dashRes.value.data.data.stats);
-        }
-        if (dashRes.value.data.data.recentActivity) {
-           setRecentActivity(dashRes.value.data.data.recentActivity);
-        }
-        // Handle admin chart data dynamically
-        const charts = dashRes.value.data.data.charts;
-        if (charts) {
-          if (charts.lineData) setLineData(charts.lineData);
-          if (charts.deptHeadcount) setSalaryData(charts.deptHeadcount);
-          if (charts.priorityStats) setPerformanceData(charts.priorityStats);
+      if (tasksRes.status === "fulfilled" && tasksRes.value.data.data?.tasks) {
+        const freshTasks = tasksRes.value.data.data.tasks;
+        setTasks(freshTasks);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("nexus_cached_tasks", JSON.stringify(freshTasks));
         }
       }
 
-      if (tasksRes.status === "fulfilled" && tasksRes.value.data.data?.tasks) {
-        setTasks(tasksRes.value.data.data.tasks);
+      if (analyticsRes.status === "fulfilled" && analyticsRes.value.data.data) {
+        setAnalyticsData(analyticsRes.value.data.data);
       }
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
@@ -135,572 +102,995 @@ export const DashboardContent = () => {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(tasks.length > 0);
   }, []);
 
-  const handleToggleTask = async (task: Task) => {
-    const nextStatus = task.status === "completed" ? "in_progress" : "completed";
-    try {
-      setTasks((prev) =>
-        prev.map((t) => (t._id === task._id ? { ...t, status: nextStatus } : t))
-      );
-      await api.patch(`/tasks/${task._id}`, { status: nextStatus });
-      loadData(); // refresh stats
-    } catch (err) {
-      console.error("Failed to update task:", err);
-      loadData();
-    }
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    try {
-      setTasks((prev) => prev.filter((t) => t._id !== taskId));
-      await api.delete(`/tasks/${taskId}`);
-      loadData(); // refresh stats
-    } catch (err) {
-      console.error("Failed to delete task:", err);
-      loadData();
-    }
-  };
-
-  const handleCreateTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-
-    setIsCreating(true);
-    try {
-      const res = await api.post("/tasks", {
-        title: newTaskTitle.trim(),
-        description: newTaskDesc.trim(),
-        priority: newTaskPriority,
-        status: newTaskStatus,
-        tags: newTaskTag ? [newTaskTag.trim()] : ["Task"],
-      });
-
-      if (res.data.data?.task) {
-        setTasks((prev) => [res.data.data.task, ...prev]);
-        setNewTaskTitle("");
-        setNewTaskDesc("");
-        setNewTaskTag("");
-        setShowModal(false);
-        loadData(); // refresh stats
-      }
-    } catch (err) {
-      console.error("Failed to create task:", err);
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const filteredTasks = tasks.filter((t) => {
-    const matchesFilter =
-      activeFilter === "all" ||
-      (activeFilter === "todo" && t.status === "todo") ||
-      (activeFilter === "in_progress" && (t.status === "in_progress" || t.status === "todo")) ||
-      (activeFilter === "review" && t.status === "review") ||
-      (activeFilter === "completed" && t.status === "completed");
-
-    const matchesSearch =
-      t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.description && t.description.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    return matchesFilter && matchesSearch;
-  });
-
-  // Calculate Productivity %
-  const totalTasks = stats.find((s) => s.label === "Total Tasks")?.value || 0;
-  const completedTasks = stats.find((s) => s.label === "Completed")?.value || 0;
-  const productivityPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  // Real-time Metrics Calculation from Live Tasks
+  const totalTasks = tasks.length;
+  const inProgressTasks = tasks.filter((t) => t.status === "in_progress").length;
+  const inReviewTasks = tasks.filter((t) => t.status === "review").length;
+  const pendingTasks = tasks.filter((t) => t.status === "todo" || t.status === "review").length;
+  const completedTasks = tasks.filter((t) => t.status === "completed").length;
   
-  const circumference = 2 * Math.PI * 38;
-  const strokeDashoffset = circumference - (productivityPercent / 100) * circumference;
+  // Real Overdue Calculation
+  const overdueTasks = tasks.filter((t) => {
+    if (t.status === "completed" || !t.dueDate) return false;
+    const due = new Date(t.dueDate);
+    const now = new Date();
+    return due < now;
+  }).length;
+
+  const productivityPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  // Real Donut Chart Data (Status Breakdown)
+  const taskStatusDistribution = useMemo(() => {
+    const todo = tasks.filter((t) => t.status === "todo").length;
+    const inProg = inProgressTasks;
+    const rev = inReviewTasks;
+    const comp = completedTasks;
+
+    if (totalTasks === 0) {
+      return [
+        { name: t("status_todo"), value: 25, count: 0, color: "#F59E0B" },
+        { name: t("status_in_progress"), value: 25, count: 0, color: "#38BDF8" },
+        { name: t("status_review"), value: 25, count: 0, color: "#8B5CF6" },
+        { name: t("status_done"), value: 25, count: 0, color: "#10B981" },
+      ];
+    }
+
+    return [
+      { name: t("status_done"), value: Math.round((comp / totalTasks) * 100), count: comp, color: "#10B981" },
+      { name: t("status_in_progress"), value: Math.round((inProg / totalTasks) * 100), count: inProg, color: "#38BDF8" },
+      { name: t("status_review"), value: Math.round((rev / totalTasks) * 100), count: rev, color: "#8B5CF6" },
+      { name: t("status_todo"), value: Math.round((todo / totalTasks) * 100), count: todo, color: "#F59E0B" },
+    ];
+  }, [tasks, totalTasks, inProgressTasks, inReviewTasks, completedTasks, t]);
+
+  // Real Weekly Activity Data
+  const weeklyActivityData = useMemo(() => {
+    const days = [t("days_mo"), t("days_tu"), t("days_we"), t("days_th"), t("days_fr"), t("days_sa"), t("days_su")];
+    const counts = days.map((day) => ({ day, created: 0, completed: 0 }));
+
+    tasks.forEach((t) => {
+      const createdDate = new Date(t.createdAt);
+      const dayIndex = (createdDate.getDay() + 6) % 7; // Monday = 0
+      if (dayIndex >= 0 && dayIndex < 7) {
+        counts[dayIndex].created += 1;
+      }
+      if (t.status === "completed") {
+        const updatedDate = new Date(t.updatedAt || t.createdAt);
+        const compDayIndex = (updatedDate.getDay() + 6) % 7;
+        if (compDayIndex >= 0 && compDayIndex < 7) {
+          counts[compDayIndex].completed += 1;
+        }
+      }
+    });
+
+    return counts;
+  }, [tasks, t]);
+
+  // Department Helper
+  const getDeptTranslation = (name: string) => {
+    const map: Record<string, string> = {
+      "Operations": t("dept_operations"),
+      "Engineering": t("dept_engineering"),
+      "Sales & Business Dev": t("dept_sales"),
+      "Sales": t("dept_sales"),
+      "Design": t("dept_design"),
+      "Human Resources": t("dept_hr"),
+      "HR": t("dept_hr"),
+      "Executive Leadership": t("dept_leadership"),
+    };
+    return map[name] || name;
+  };
+
+  // Department Performance & Task Execution Matrix
+  const departmentPerformance = useMemo(() => {
+    const defaultDepts = ["Engineering", "Operations", "Design", "Marketing", "HR"];
+    const deptMap: Record<string, { total: number; completed: number; inProgress: number; pending: number }> = {
+      Engineering: { total: 0, completed: 0, inProgress: 0, pending: 0 },
+      Operations: { total: 0, completed: 0, inProgress: 0, pending: 0 },
+      Design: { total: 0, completed: 0, inProgress: 0, pending: 0 },
+      Marketing: { total: 0, completed: 0, inProgress: 0, pending: 0 },
+      HR: { total: 0, completed: 0, inProgress: 0, pending: 0 },
+    };
+
+    tasks.forEach((t) => {
+      const dept = t.department || "Engineering";
+      if (!deptMap[dept]) {
+        deptMap[dept] = { total: 0, completed: 0, inProgress: 0, pending: 0 };
+      }
+      deptMap[dept].total += 1;
+      if (t.status === "completed") deptMap[dept].completed += 1;
+      else if (t.status === "in_progress") deptMap[dept].inProgress += 1;
+      else deptMap[dept].pending += 1;
+    });
+
+    const colors: Record<string, { bg: string; text: string; bar: string }> = {
+      Engineering: { bg: "bg-indigo-50 dark:bg-indigo-950/40", text: "text-[#5B5FEF]", bar: "bg-[#5B5FEF]" },
+      Operations: { bg: "bg-amber-50 dark:bg-amber-950/40", text: "text-amber-600", bar: "bg-amber-500" },
+      Design: { bg: "bg-sky-50 dark:bg-sky-950/40", text: "text-sky-600", bar: "bg-sky-500" },
+      Marketing: { bg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-600", bar: "bg-purple-500" },
+      HR: { bg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-600", bar: "bg-emerald-500" },
+    };
+
+    return Object.entries(deptMap)
+      .filter(([name, stats]) => stats.total > 0 || defaultDepts.slice(0, 3).includes(name))
+      .map(([name, stats]) => {
+        const rate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
+        const color = colors[name] || { bg: "bg-slate-50 dark:bg-slate-800", text: "text-slate-600", bar: "bg-[#5B5FEF]" };
+        return {
+          name,
+          ...stats,
+          rate,
+          color,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [tasks]);
+
+  // Calendar Calculation Helpers
+  const currentMonthYear = calendarDate.toLocaleString("default", { month: "long", year: "numeric" });
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+
+  const handlePrevMonth = () => {
+    setCalendarDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCalendarDate(new Date(year, month + 1, 1));
+  };
+
+  // Check if a specific date has tasks due or created
+  const getTasksForDate = (dateObj: Date) => {
+    const dateStr = dateObj.toISOString().split("T")[0];
+    return tasks.filter((t) => {
+      if (t.dueDate) {
+        const dueStr = new Date(t.dueDate).toISOString().split("T")[0];
+        if (dueStr === dateStr) return true;
+      }
+      const createdStr = new Date(t.createdAt).toISOString().split("T")[0];
+      return createdStr === dateStr;
+    });
+  };
+
+  const selectedDateTasks = useMemo(() => {
+    return getTasksForDate(selectedDate);
+  }, [selectedDate, tasks]);
+
+  // Pagination State for Day Schedule
+  const [schedulePage, setSchedulePage] = useState(1);
+  const SCHEDULE_ITEMS_PER_PAGE = 5;
+
+  // Reset page when selected date changes
+  useEffect(() => {
+    setSchedulePage(1);
+  }, [selectedDate]);
+
+  const totalSchedulePages = Math.ceil(selectedDateTasks.length / SCHEDULE_ITEMS_PER_PAGE) || 1;
+  const paginatedScheduleTasks = useMemo(() => {
+    const start = (schedulePage - 1) * SCHEDULE_ITEMS_PER_PAGE;
+    return selectedDateTasks.slice(start, start + SCHEDULE_ITEMS_PER_PAGE);
+  }, [selectedDateTasks, schedulePage]);
+
+  // Pagination State for Recent Activity
+  const [activityPage, setActivityPage] = useState(1);
+  const ACTIVITY_ITEMS_PER_PAGE = 5;
+  const totalActivityPages = Math.ceil(tasks.length / ACTIVITY_ITEMS_PER_PAGE) || 1;
+
+  // Real Recent Activity Stream
+  const recentActivities = useMemo(() => {
+    const sorted = [...tasks].sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+    );
+
+    const start = (activityPage - 1) * ACTIVITY_ITEMS_PER_PAGE;
+    const paginated = sorted.slice(start, start + ACTIVITY_ITEMS_PER_PAGE);
+
+    return paginated.map((actItem) => {
+      const isCompleted = actItem.status === "completed";
+      const isInProgress = actItem.status === "in_progress";
+      const isReview = actItem.status === "review";
+
+      let statusBadge = { label: t("status_todo"), color: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200/80 dark:border-amber-900/40" };
+      if (isCompleted) statusBadge = { label: t("status_done"), color: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-200/80 dark:border-emerald-900/40" };
+      else if (isInProgress) statusBadge = { label: t("status_in_progress"), color: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border-blue-200/80 dark:border-blue-900/40" };
+      else if (isReview) statusBadge = { label: t("status_review"), color: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border-purple-200/80 dark:border-purple-900/40" };
+
+      let priorityBadgeClass = "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200/80 dark:border-slate-700/50";
+      if (actItem.priority === "urgent") priorityBadgeClass = "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border-rose-200/80 dark:border-rose-900/40";
+      else if (actItem.priority === "high") priorityBadgeClass = "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200/80 dark:border-amber-900/40";
+      else if (actItem.priority === "medium") priorityBadgeClass = "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400 border-sky-200/80 dark:border-sky-900/40";
+
+      const diffMs = Date.now() - new Date(actItem.updatedAt || actItem.createdAt).getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      let timeStr = "Just now";
+      if (diffMins >= 60 * 24) timeStr = `${Math.floor(diffMins / (60 * 24))}d ago`;
+      else if (diffMins >= 60) timeStr = `${Math.floor(diffMins / 60)}h ago`;
+      else if (diffMins > 0) timeStr = `${diffMins}m ago`;
+
+      return {
+        id: actItem._id,
+        title: actItem.title,
+        status: statusBadge,
+        time: timeStr,
+        priority: actItem.priority,
+        priorityBadge: priorityBadgeClass,
+      };
+    });
+  }, [tasks, activityPage, t]);
+
+  // Top Active Contributors calculation from real assigned tasks
+  const topContributors = useMemo(() => {
+    const userMap: Record<string, { name: string; avatarUrl?: string; initials: string; completed: number; total: number; department?: string }> = {};
+
+    tasks.forEach((task) => {
+      (task.assignedTo || []).forEach((u) => {
+        if (typeof u !== "string" && u._id) {
+          if (!userMap[u._id]) {
+            const fName = u.firstName || "";
+            const lName = u.lastName || "";
+            const fullName = `${fName} ${lName}`.trim() || u.email || "Team Member";
+            userMap[u._id] = {
+              name: fullName,
+              avatarUrl: u.avatarUrl,
+              initials: `${fName[0] || ""}${lName[0] || ""}`.toUpperCase() || "TM",
+              completed: 0,
+              total: 0,
+              department: u.department || "Enterprise",
+            };
+          }
+          userMap[u._id].total += 1;
+          if (task.status === "completed") {
+            userMap[u._id].completed += 1;
+          }
+        }
+      });
+    });
+
+    return Object.values(userMap)
+      .sort((a, b) => b.completed - a.completed || b.total - a.total)
+      .slice(0, 3);
+  }, [tasks]);
 
   return (
-    <div className="min-h-screen bg-transparent pb-12">
+    <div className="flex-1 flex flex-col min-h-screen bg-transparent transition-colors duration-300">
       <Topbar
         title="Dashboard"
-        subtitle="Welcome back! Here's what's happening today."
+        subtitle="Welcome back! Here's what's happening across your workspace today."
       />
 
-      <main className="px-5 sm:px-7 lg:px-8 max-w-[1600px] mx-auto mt-6 animate-in fade-in duration-500 h-[calc(100vh-140px)]">
+      {loading ? (
+        <main className="flex-1 px-4 lg:px-8 py-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          <DashboardSkeleton />
+        </main>
+      ) : (
+        <main className="flex-1 px-4 lg:px-8 py-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-300">
         
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-full">
-          
-          {/* ================= LEFT COLUMN ================= */}
-          <div className="xl:col-span-7 h-full flex flex-col gap-6">
-            
-            {/* Welcome Hero */}
-            <div className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#1E293B] to-[#0F172A] dark:from-[#0B1120] dark:to-[#020617] p-8 lg:p-10 shadow-[0_8px_30px_rgba(15,23,42,0.12)] border border-slate-700/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0">
-               <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
-               <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#5B5FEF]/20 rounded-full blur-2xl translate-y-1/2 -translate-x-1/4 pointer-events-none" />
-               
-               <div className="relative z-10 space-y-2">
-                 <h2 className="text-[28px] lg:text-[34px] font-extrabold tracking-tight leading-tight text-white drop-shadow-sm">
-                   Good morning, {user?.firstName || "there"} 👋
-                 </h2>
-                 <p className="text-[14px] lg:text-[15px] text-slate-300 leading-relaxed font-medium max-w-xl">
-                   Stay organized, track your progress, and get more done today.
-                 </p>
-               </div>
-               <div className="relative z-10 shrink-0">
-                 <button
-                   onClick={() => setShowModal(true)}
-                   className="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white px-7 py-3 rounded-xl text-[14px] font-bold shadow-lg transition-all hover:-translate-y-1 active:translate-y-0 cursor-pointer flex items-center gap-2 group"
-                 >
-                   <span className="text-lg leading-none group-hover:scale-110 transition-transform">+</span> Create Task
-                 </button>
-               </div>
+        {/* ================= HERO BANNER ================= */}
+        <div className="rounded-2xl bg-white dark:bg-slate-900 p-6 sm:p-7 shadow-xs border border-slate-200/90 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 transition-all">
+          <div className="space-y-1.5 max-w-2xl">
+            <div className="flex items-center gap-2">
+              {isAdmin ? (
+                <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/40 rounded-lg text-[11px] font-black tracking-wider uppercase flex items-center gap-1.5 shadow-2xs">
+                  <Sparkles className="w-3.5 h-3.5 text-[#5B5FEF]" /> {t("admin_overview")}
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/40 rounded-lg text-[11px] font-black tracking-wider uppercase flex items-center gap-1.5 shadow-2xs">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" /> {t("workspace_overview")}
+                </span>
+              )}
             </div>
-
-            {/* KPI Cards Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 shrink-0">
-               {[
-                 { label: "Total Tasks", value: stats.find(s=>s.label==="Total Tasks")?.value || 0, trend: "+12.5%", trendColor: "text-slate-700 bg-slate-100 dark:bg-slate-800 dark:text-slate-300", accent: "bg-slate-500" },
-                 { label: "In Progress", value: stats.find(s=>s.label==="In Progress")?.value || 0, trend: "+4.2%", trendColor: "text-blue-700 bg-blue-50 dark:bg-blue-500/20 dark:text-blue-400", accent: "bg-blue-500" },
-                 { label: "Completed", value: stats.find(s=>s.label==="Completed")?.value || 0, trend: "+18.4%", trendColor: "text-emerald-700 bg-emerald-50 dark:bg-emerald-500/20 dark:text-emerald-400", accent: "bg-emerald-500" },
-                 { label: "Pending", value: stats.find(s=>s.label==="In Review")?.value || 0, trend: "-2.3%", trendColor: "text-amber-700 bg-amber-50 dark:bg-amber-500/20 dark:text-amber-400", accent: "bg-amber-500" },
-               ].map((stat, idx) => (
-                 <div key={idx} className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-[20px] p-6 border border-slate-200/60 dark:border-slate-800 hover:border-[#5B5FEF]/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group cursor-pointer">
-                    <div className={`absolute top-0 left-0 w-full h-1 ${stat.accent} opacity-20 group-hover:opacity-100 transition-opacity`} />
-                    <p className="text-[13px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{stat.label}</p>
-                    <div className="mt-4 flex items-end justify-between">
-                      <h3 className="text-[32px] xl:text-[36px] font-black text-slate-900 dark:text-white leading-none tracking-tight">{stat.value}</h3>
-                      <span className={`inline-block mb-1 px-2.5 py-1 rounded-md text-[11px] font-extrabold ${stat.trendColor}`}>
-                         {stat.trend}
-                      </span>
-                    </div>
-                 </div>
-               ))}
-            </div>
-
-            {/* My Tasks Section (Scrollable List) */}
-            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 sm:p-8 shadow-sm border border-slate-200/60 dark:border-slate-800 flex-1 flex flex-col min-h-0">
-               <div className="shrink-0">
-                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                    <div>
-                      <h3 className="text-[18px] font-extrabold text-slate-900">My Tasks</h3>
-                      <p className="text-[13px] text-slate-500 font-medium">Keep track of everything you need to accomplish.</p>
-                    </div>
-                    
-                    {/* Filters */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      {[
-                        { id: "all", label: "All" },
-                        { id: "todo", label: "To Do" },
-                        { id: "in_progress", label: "In Progress" },
-                        { id: "review", label: "Review" },
-                        { id: "completed", label: "Completed" },
-                      ].map((tab) => (
-                        <button
-                          key={tab.id}
-                          onClick={() => setActiveFilter(tab.id)}
-                          className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all cursor-pointer ${
-                            activeFilter === tab.id
-                              ? "bg-[#5B5FEF] text-white shadow-md shadow-[#5B5FEF]/20"
-                              : "text-slate-500 hover:bg-slate-100"
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                 </div>
-
-                 {/* Search & Sort */}
-                 <div className="flex items-center gap-3 mb-6">
-                   <div className="relative flex-1">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input 
-                        type="text" 
-                        placeholder="Search tasks..." 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-[13px] font-medium placeholder:text-slate-400 focus:outline-none focus:border-[#5B5FEF] focus:ring-1 focus:ring-[#5B5FEF] transition-all"
-                      />
-                   </div>
-                   <div className="shrink-0">
-                      <select className="py-2 pl-3 pr-8 rounded-lg border border-slate-200 text-[13px] font-bold text-slate-700 bg-white focus:outline-none cursor-pointer appearance-none">
-                         <option>Sort by</option>
-                         <option>Date</option>
-                         <option>Priority</option>
-                      </select>
-                   </div>
-                 </div>
-               </div>
-
-               {/* Task List (Scrollable Area) */}
-               <div className="flex-1 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
-                 {loading ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-[#5B5FEF]" />
-                      <p className="text-[13px] font-semibold">Loading tasks...</p>
-                    </div>
-                  ) : filteredTasks.length === 0 ? (
-                    <div className="text-center py-12 px-6 border-2 border-dashed border-slate-200 rounded-xl mt-4">
-                      <CheckSquare className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                      <h4 className="text-[15px] font-extrabold text-slate-900">No tasks found</h4>
-                      <p className="text-[13px] text-slate-500 mt-1">Adjust filters or create a new task.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 pb-4">
-                      {filteredTasks.map((task) => {
-                        const isCompleted = task.status === "completed";
-                        const statusColor = {
-                          todo: "text-slate-600 bg-slate-100",
-                          in_progress: "text-blue-700 bg-blue-50",
-                          review: "text-purple-700 bg-purple-50",
-                          completed: "text-emerald-700 bg-emerald-50"
-                        }[task.status] || "text-slate-600 bg-slate-100";
-                        
-                        const priorityColor = {
-                          urgent: "text-red-600",
-                          high: "text-amber-600",
-                          medium: "text-blue-600",
-                          low: "text-slate-500"
-                        }[task.priority || "medium"];
-
-                        return (
-                          <div
-                            key={task._id}
-                            className="group flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[16px] border border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 hover:shadow-sm transition-all cursor-pointer"
-                          >
-                            <div className="flex gap-4 flex-1 min-w-0">
-                              <button
-                                type="button"
-                                onClick={() => handleToggleTask(task)}
-                                className={`shrink-0 w-5 h-5 rounded-[6px] mt-0.5 flex items-center justify-center border-2 transition-colors cursor-pointer ${
-                                  isCompleted
-                                    ? "bg-[#5B5FEF] border-[#5B5FEF] text-white"
-                                    : "bg-white border-slate-300 hover:border-[#5B5FEF]"
-                                }`}
-                              >
-                                {isCompleted && <CheckCircle2 className="w-3.5 h-3.5" />}
-                              </button>
-                              <div className="flex-1 min-w-0">
-                                 <h4 className={`text-[14px] font-bold truncate ${isCompleted ? "line-through text-slate-400" : "text-slate-900"}`}>
-                                   {task.title}
-                                 </h4>
-                                 <p className="text-[12px] text-slate-500 mt-0.5 line-clamp-1">
-                                   {task.description || "No description provided."}
-                                 </p>
-                                 
-                                 {/* Mobile Metadata */}
-                                 <div className="flex sm:hidden flex-wrap items-center gap-3 mt-3">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold capitalize ${statusColor}`}>
-                                      {task.status.replace("_", " ")}
-                                    </span>
-                                    <span className={`flex items-center gap-1 text-[11px] font-bold ${priorityColor}`}>
-                                       <div className={`w-1.5 h-1.5 rounded-full bg-current`} />
-                                       {task.priority}
-                                    </span>
-                                 </div>
-                              </div>
-                            </div>
-
-                            {/* Desktop Metadata */}
-                            <div className="hidden sm:flex items-center gap-5 shrink-0">
-                               <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold capitalize ${statusColor}`}>
-                                 {task.status.replace("_", " ")}
-                               </span>
-                               
-                               <div className={`flex items-center gap-1.5 text-[12px] font-bold w-[70px] ${priorityColor}`}>
-                                  <div className={`w-1.5 h-1.5 rounded-full bg-current`} />
-                                  <span className="capitalize">{task.priority}</span>
-                               </div>
-
-                               {/* Assignee Avatars */}
-                               <div className="flex w-[60px]">
-                                  <div className="w-7 h-7 rounded-full bg-[#1E293B] border-2 border-white flex items-center justify-center text-[10px] text-white font-bold overflow-hidden">
-                                     {user?.avatarUrl ? (
-                                       <img src={user.avatarUrl} className="w-full h-full object-cover" alt="" />
-                                     ) : (
-                                       user ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() : "ME"
-                                     )}
-                                  </div>
-                               </div>
-
-                               <div className="text-[12px] font-semibold text-slate-600 w-[90px]">
-                                 {task.dueDate ? new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No date'}
-                               </div>
-
-                               <div className="w-[60px] flex items-center justify-center">
-                                  <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">
-                                    {task.tags?.[0] || 'Tag'}
-                                  </span>
-                               </div>
-
-                               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteTask(task._id)}
-                                    className="text-slate-400 hover:text-red-600 p-1.5 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                               </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-               </div>
-            </div>
-
+            <h2 className="text-[22px] sm:text-[25px] font-black tracking-tight leading-tight text-slate-900 dark:text-white">
+              {t("good_day")}, {user?.firstName || (isAdmin ? "Admin" : "Team Member")} {user?.lastName || ""} 👋
+            </h2>
+            <p className="text-[13.5px] text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+              {isAdmin ? (
+                <>
+                  You currently have <strong className="text-slate-900 dark:text-white font-bold">{totalTasks} {t("total_tasks").toLowerCase()}</strong> across your enterprise teams and departments.
+                </>
+              ) : (
+                <>
+                  You currently have <strong className="text-slate-900 dark:text-white font-bold">{totalTasks} assigned {t("tasks_label")}</strong> in your workspace queue.
+                </>
+              )}
+            </p>
           </div>
 
-          {/* ================= RIGHT COLUMN (Scrollable) ================= */}
-          <div className="xl:col-span-5 h-full overflow-y-auto pr-4 pb-12 space-y-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
-             
-             {/* Productivity Card */}
-             <div className="bg-white dark:bg-slate-900 rounded-[24px] p-7 shadow-sm border border-slate-200/60 dark:border-slate-800 flex items-center justify-between relative overflow-hidden group hover:shadow-md transition-all">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-[#5B5FEF]/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/3 pointer-events-none group-hover:scale-110 transition-transform" />
-                <div className="relative z-10">
-                  <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">Productivity</h3>
-                  <div className="mt-3">
-                     <span className="text-[36px] font-black text-slate-900 dark:text-white leading-none tracking-tight">{productivityPercent}%</span>
-                     <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400 mt-1">Great progress this<br/>week</p>
-                  </div>
-                </div>
-                <div className="relative w-24 h-24 shrink-0">
-                   <svg className="w-full h-full transform -rotate-90">
-                     <circle cx="48" cy="48" r="38" stroke="#F1F5F9" strokeWidth="5" fill="none" />
-                     <circle 
-                        cx="48" 
-                        cy="48" 
-                        r="38" 
-                        stroke="#4355CC" 
-                        strokeWidth="5" 
-                        fill="none" 
-                        strokeLinecap="round"
-                        style={{ strokeDasharray: circumference, strokeDashoffset, transition: "stroke-dashoffset 1s ease-in-out" }}
-                     />
-                   </svg>
-                </div>
-             </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              href="/tasks"
+              className="bg-[#5B5FEF] hover:bg-[#4A4EDC] text-white px-4 py-2.5 rounded-xl text-[13.5px] font-bold shadow-xs transition-all flex items-center gap-2 active:scale-95 cursor-pointer"
+            >
+              <CheckSquare className="w-4 h-4" />
+              <span>{isAdmin ? t("manage_tasks") : t("view_my_tasks")}</span>
+            </Link>
+          </div>
+        </div>
 
-             {/* Recent Activity */}
-             <div className="bg-white dark:bg-slate-900 rounded-[24px] p-7 shadow-sm border border-slate-200/60 dark:border-slate-800 hover:shadow-md transition-all">
-                <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white mb-6">Recent Activity</h3>
-                <div className="space-y-5 relative before:absolute before:inset-0 before:left-[11px] before:w-px before:bg-slate-200 dark:before:bg-slate-800">
-                  {recentActivity.length > 0 ? recentActivity.map((activity, idx) => (
-                    <div key={idx} className="relative flex gap-4">
-                       <div className="w-6 h-6 rounded-full bg-white dark:bg-slate-900 border-[5px] border-[#5B5FEF] shrink-0 z-10 shadow-sm" />
-                       <div>
-                         <span className="text-[11px] font-bold text-[#5B5FEF] block mb-0.5 uppercase tracking-wide">Update</span>
-                         <h4 className="text-[13px] font-bold text-slate-900 dark:text-slate-200 leading-snug">{activity.title}</h4>
-                         <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-1">{activity.time}</p>
-                       </div>
-                    </div>
-                  )) : (
-                    <div className="text-[13px] font-medium text-slate-500 dark:text-slate-400 pl-8">No recent activity.</div>
-                  )}
+        {/* ================= KPI METRICS GRID (ALL 6 CLICKABLE TICKETS) ================= */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
+          {[
+            {
+              label: t("total_tasks"),
+              value: totalTasks,
+              href: "/tasks?status=all",
+              hoverBorder: "hover:border-[#5B5FEF]/60 dark:hover:border-[#5B5FEF]/60",
+              topBar: "bg-[#5B5FEF]",
+              hint: t("all_statuses"),
+            },
+            {
+              label: t("pending"),
+              value: pendingTasks,
+              href: "/tasks?status=todo",
+              hoverBorder: "hover:border-amber-500/60 dark:hover:border-amber-500/60",
+              topBar: "bg-[#F59E0B]",
+              hint: t("status_todo"),
+            },
+            {
+              label: t("in_progress"),
+              value: inProgressTasks,
+              href: "/tasks?status=in_progress",
+              hoverBorder: "hover:border-sky-500/60 dark:hover:border-sky-500/60",
+              topBar: "bg-[#38BDF8]",
+              hint: t("status_in_progress"),
+            },
+            {
+              label: t("completed"),
+              value: completedTasks,
+              href: "/tasks?status=completed",
+              hoverBorder: "hover:border-emerald-500/60 dark:hover:border-emerald-500/60",
+              topBar: "bg-[#10B981]",
+              hint: t("status_done"),
+            },
+            {
+              label: t("overdue"),
+              value: overdueTasks,
+              href: "/tasks?status=overdue",
+              hoverBorder: "hover:border-red-500/60 dark:hover:border-red-500/60",
+              topBar: "bg-[#EF4444]",
+              hint: t("status_overdue"),
+            },
+            {
+              label: t("completion_rate"),
+              value: `${productivityPercent}%`,
+              href: "/analytics",
+              hoverBorder: "hover:border-purple-500/60 dark:hover:border-purple-500/60",
+              topBar: "bg-[#8B5CF6]",
+              hint: t("analytics"),
+            },
+          ].map((stat, idx) => (
+            <Link
+              key={idx}
+              href={stat.href}
+              className={`relative overflow-hidden bg-white dark:bg-slate-900 rounded-[22px] p-5 shadow-sm border border-slate-200/70 dark:border-slate-800 ${stat.hoverBorder} hover:shadow-lg hover:-translate-y-1 transition-all duration-200 cursor-pointer group flex flex-col justify-between card-shimmer hover-shimmer`}
+            >
+              <div className={`absolute top-0 left-0 right-0 h-1.5 ${stat.topBar} transition-all duration-200 group-hover:h-2`} />
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    {stat.label}
+                  </p>
+                  <ArrowRight className="w-3.5 h-3.5 text-[#5B5FEF] opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all duration-200" />
                 </div>
-             </div>
+                <h3 className="text-[28px] xl:text-[32px] font-black text-slate-900 dark:text-white leading-none tracking-tight">
+                  {stat.value}
+                </h3>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-slate-500 group-hover:text-[#5B5FEF] transition-colors">
+                <span>{stat.hint}</span>
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  Open →
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
 
-             {/* Task Performance Chart */}
-             <div className="bg-white dark:bg-slate-900 rounded-[24px] p-7 shadow-sm border border-slate-200/60 dark:border-slate-800 hover:shadow-md transition-all">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">Task Performance</h3>
-                  <select className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 outline-none cursor-pointer">
-                    <option>This Week</option>
-                    <option>Last Week</option>
-                  </select>
-                </div>
-                <div className="h-[200px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={lineData} margin={{ top: 20, right: 0, bottom: 0, left: -20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8', fontWeight: 600 }} dy={10} />
-                      <YAxis hide />
-                      <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 'bold' }} />
-                      <Line type="monotone" dataKey="completed" stroke="#10B981" strokeWidth={3} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#10B981' }} />
-                      <Line type="monotone" dataKey="inProgress" stroke="#5B5FEF" strokeWidth={3} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#5B5FEF' }} />
-                      <Line type="monotone" dataKey="pending" stroke="#F59E0B" strokeWidth={3} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#F59E0B' }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex items-center justify-center gap-4 mt-6 text-[11px] font-bold text-slate-600">
-                  <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#10B981]" /> Completed</div>
-                  <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#5B5FEF]" /> In Progress</div>
-                  <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F59E0B]" /> Pending</div>
-                </div>
-             </div>
-
-             {/* Salary & Department Budgets (Bar Chart) */}
-             <div className="bg-white dark:bg-slate-900 rounded-[24px] p-7 shadow-sm border border-slate-200/60 dark:border-slate-800 hover:shadow-md transition-all">
-                <div className="flex items-center justify-between mb-6">
+        {/* ================= MAIN DASHBOARD BODY (2 COLUMNS) ================= */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+          
+          {/* ================= LEFT COLUMN: CHARTS & VELOCITY ================= */}
+          <div className="xl:col-span-8 flex flex-col gap-6">
+            
+            {/* Top Charts Row: Donut + Weekly Activity */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* 1. Real Status Breakdown Donut Chart */}
+              <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">
-                      {user?.role === "admin" ? "Staff Headcount" : "Salary & Budgets"}
-                    </h3>
-                    <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                      {user?.role === "admin" ? "Registered employees by department" : "Departmental expenses"}
-                    </p>
+                    <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">{t("task_distribution")}</h3>
+                    <p className="text-[12px] text-slate-500 font-medium">{t("realtime_breakdown")}</p>
                   </div>
+                  <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-[11px] font-bold">
+                    {totalTasks} {t("tasks_label")}
+                  </span>
                 </div>
-                <div className="h-[220px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={salaryData} margin={{ top: 10, right: 0, bottom: 0, left: -20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8', fontWeight: 600 }} dy={10} />
-                      <YAxis hide />
-                      <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 'bold' }} />
-                      <Bar dataKey="Engineering" stackId="a" fill="#5B5FEF" radius={[0, 0, 4, 4]} barSize={12} />
-                      <Bar dataKey="Design" stackId="a" fill="#F2C078" barSize={12} />
-                      <Bar dataKey="HR" stackId="a" fill="#10B981" radius={[4, 4, 0, 0]} barSize={12} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                {user?.role === "admin" ? (
-                  <div className="flex items-center justify-center gap-4 mt-6 text-[11px] font-bold text-slate-600">
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#5B5FEF]" /> Engineering ({salaryData[0]?.Engineering || 0})</div>
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F2C078]" /> Design ({salaryData[0]?.Design || 0})</div>
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#10B981]" /> HR ({salaryData[0]?.HR || 0})</div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-4 mt-6 text-[11px] font-bold text-slate-600">
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#5B5FEF]" /> Eng</div>
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F2C078]" /> Design</div>
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#10B981]" /> HR</div>
-                  </div>
-                )}
-             </div>
 
-             {/* Attendance Trends (Area Chart) */}
-             <div className="bg-white dark:bg-slate-900 rounded-[24px] p-7 shadow-sm border border-slate-200/60 dark:border-slate-800 hover:shadow-md transition-all">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">Attendance Trends</h3>
-                    <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">Monthly check-in rates</p>
-                  </div>
-                </div>
-                <div className="h-[220px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={mockAttendanceData} margin={{ top: 10, right: 0, bottom: 0, left: -20 }}>
-                      <defs>
-                        <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10B981" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8', fontWeight: 600 }} dy={10} />
-                      <YAxis hide />
-                      <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 'bold' }} />
-                      <Area type="monotone" dataKey="present" stroke="#10B981" strokeWidth={3} fillOpacity={1} fill="url(#colorPresent)" />
-                      <Area type="monotone" dataKey="late" stroke="#F59E0B" strokeWidth={2} fillOpacity={0} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex items-center justify-center gap-4 mt-6 text-[11px] font-bold text-slate-600">
-                  <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#10B981]" /> Present</div>
-                  <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F59E0B]" /> Late</div>
-                </div>
-             </div>
-
-             {/* Overall Performance (Pie/Donut Chart) */}
-             <div className="bg-white rounded-[18px] p-6 shadow-sm border border-slate-200">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h3 className="text-[16px] font-extrabold text-slate-900">
-                      {user?.role === "admin" ? "Task Priorities" : "Overall Performance"}
-                    </h3>
-                    <p className="text-[12px] font-medium text-slate-500 mt-0.5">
-                      {user?.role === "admin" ? "Priority distribution of all tasks" : "Employee rating distribution"}
-                    </p>
-                  </div>
-                </div>
-                <div className="h-[220px] w-full relative">
+                <div className="h-[210px] w-full relative flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={performanceData}
+                        data={taskStatusDistribution}
                         cx="50%"
                         cy="50%"
-                        innerRadius={65}
+                        innerRadius={60}
                         outerRadius={85}
-                        paddingAngle={5}
+                        paddingAngle={3}
                         dataKey="value"
                         stroke="none"
                       >
-                        {performanceData.map((entry, index) => (
+                        {taskStatusDistribution.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 'bold' }} />
+                      <Tooltip
+                        formatter={(val: any, name: any, item: any) => [`${item.payload.count} ${t("tasks_label")} (${val}%)`, name]}
+                        contentStyle={{
+                          backgroundColor: "#0F172A",
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          color: "white"
+                        }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
-                  {/* Center text for Donut Chart */}
-                  {user?.role === "admin" ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
-                       <span className="text-[24px] font-black text-slate-900 leading-none">{totalTasks}</span>
-                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Total Tasks</span>
-                    </div>
-                  ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
-                       <span className="text-[28px] font-black text-slate-900 leading-none">45%</span>
-                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Excellent</span>
-                    </div>
-                  )}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[20px] font-black text-slate-900 dark:text-white">{productivityPercent}%</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t("status_done")}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-center gap-x-4 gap-y-2 mt-4 text-[11px] font-bold text-slate-600 flex-wrap">
-                  {performanceData.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} /> {item.name} ({item.value})
+
+                {/* Donut Legend */}
+                <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  {taskStatusDistribution.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">{item.name}</p>
+                        <p className="text-[13px] font-black text-slate-900 dark:text-white">{item.count} <span className="text-[11px] font-medium text-slate-400">({item.value}%)</span></p>
+                      </div>
                     </div>
                   ))}
                 </div>
-             </div>
+              </div>
+
+              {/* 2. Weekly Task Velocity Bar Chart */}
+              <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">{t("weekly_activity")}</h3>
+                    <p className="text-[12px] text-slate-500 font-medium">{t("weekly_subtitle")}</p>
+                  </div>
+                  <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-[11px] font-bold flex items-center gap-1">
+                    <Activity className="w-3.5 h-3.5 text-[#5B5FEF]" /> {t("live_badge")}
+                  </span>
+                </div>
+
+                <div className="h-[210px] w-full flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={weeklyActivityData} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" opacity={0.5} />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8', fontWeight: 600 }} dy={5} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8', fontWeight: 600 }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#0F172A",
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          color: "white"
+                        }}
+                      />
+                      <Bar dataKey="created" name={t("created_label")} fill="#5B5FEF" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="completed" name={t("completed_label")} fill="#10B981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Bar Chart Legend */}
+                <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#5B5FEF]" />
+                    <span className="text-[12px] font-bold text-slate-600 dark:text-slate-300">{t("created_label")}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
+                    <span className="text-[12px] font-bold text-slate-600 dark:text-slate-300">{t("completed_label")}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Department Execution & Workload Matrix */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800 flex flex-col">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+                <div>
+                  <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Building2 className="w-4.5 h-4.5 text-[#5B5FEF]" />
+                    {t("dept_workload")}
+                  </h3>
+                  <p className="text-[12px] text-slate-500 font-medium mt-0.5">
+                    {t("dept_subtitle")}
+                  </p>
+                </div>
+                <Link
+                  href="/employees"
+                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 rounded-xl text-[12px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer w-fit"
+                >
+                  <Users className="w-3.5 h-3.5 text-[#5B5FEF]" /> {t("team_directory")}
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {departmentPerformance.map((dept, idx) => (
+                  <Link
+                    key={idx}
+                    href={`/tasks?search=${encodeURIComponent(dept.name)}`}
+                    className="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-[#5B5FEF]/40 dark:hover:border-[#5B5FEF]/40 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-white dark:hover:bg-slate-800 hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${dept.color.bar}`} />
+                          <h4 className="text-[14px] font-extrabold text-slate-900 dark:text-white group-hover:text-[#5B5FEF] transition-colors">
+                            {getDeptTranslation(dept.name)}
+                          </h4>
+                        </div>
+                        <span className="text-[11.5px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
+                          {dept.rate}% {t("status_done")}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 py-2 text-center text-[12px] font-semibold border-y border-slate-100 dark:border-slate-700/50 my-2">
+                        <div>
+                          <p className="text-slate-400 text-[10.5px] font-bold uppercase tracking-wider">{t("total_label")}</p>
+                          <p className="text-slate-800 dark:text-slate-200 font-extrabold text-[13px] mt-0.5">{dept.total}</p>
+                        </div>
+                        <div>
+                          <p className="text-sky-500 text-[10.5px] font-bold uppercase tracking-wider">{t("active_label")}</p>
+                          <p className="text-sky-600 dark:text-sky-400 font-extrabold text-[13px] mt-0.5">{dept.inProgress}</p>
+                        </div>
+                        <div>
+                          <p className="text-emerald-500 text-[10.5px] font-bold uppercase tracking-wider">{t("completed_label")}</p>
+                          <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[13px] mt-0.5">{dept.completed}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2">
+                      <div className="w-full bg-slate-200/80 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${dept.color.bar} rounded-full transition-all duration-500`}
+                          style={{ width: `${Math.max(dept.rate, 6)}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between mt-2 text-[11px] text-slate-400 dark:text-slate-500 font-bold">
+                        <span>{dept.pending} {t("pending_backlog")}</span>
+                        <span className="text-[#5B5FEF] opacity-0 group-hover:opacity-100 transition-opacity">{t("view_tasks_arrow")}</span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Recent Activity Feed */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">{t("recent_activity")}</h3>
+                    <p className="text-[12px] text-slate-500 font-medium">{t("recent_subtitle")}</p>
+                  </div>
+                  <Link href="/tasks" className="text-[13px] font-bold text-[#5B5FEF] hover:underline flex items-center gap-1.5 group">
+                    <span>{t("view_all_tasks")}</span>
+                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+                  </Link>
+                </div>
+
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {recentActivities.length === 0 ? (
+                    <div className="py-8 text-center text-slate-500 font-medium">{t("no_recent_activities")}</div>
+                  ) : (
+                    recentActivities.map((act) => (
+                      <div key={act.id} className="py-3 flex items-center justify-between gap-4 group">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0 group-hover:bg-[#5B5FEF] group-hover:text-white transition-colors">
+                            <CheckSquare className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-bold text-slate-900 dark:text-white truncate group-hover:text-[#5B5FEF] transition-colors">
+                              {act.title}
+                            </p>
+                            <p className="text-[11px] text-slate-400 font-medium">{act.time}</p>
+                          </div>
+                        </div>
+
+                        {/* Right: Perfectly Aligned Fixed-Width Status & Priority Badges */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className={`min-w-[96px] text-center px-2.5 py-1 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wide border shadow-2xs ${act.status.color}`}
+                          >
+                            {act.status.label}
+                          </span>
+                          <span
+                            className={`min-w-[70px] text-center px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border shadow-2xs ${act.priorityBadge}`}
+                          >
+                            {t(`priority_${act.priority}`)}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Activity Pagination Controls */}
+              {totalActivityPages > 1 && (
+                <div className="flex items-center justify-between pt-4 mt-3 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5 text-[12px] font-bold text-slate-500 dark:text-slate-400">
+                    <span>{t("page")}</span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-black text-[11px]">
+                      {activityPage}
+                    </span>
+                    <span>{t("of")} {totalActivityPages}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActivityPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={activityPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs active:scale-95"
+                      title={t("previous")}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setActivityPage((prev) => Math.min(prev + 1, totalActivityPages))}
+                      disabled={activityPage === totalActivityPages}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs active:scale-95"
+                      title={t("next")}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
           </div>
-        </div>
-      </main>
 
-      {/* =========================================================
-          PREMIUM NEW TASK MODAL
-      ========================================================= */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative w-full max-w-[520px] rounded-[24px] bg-white shadow-2xl overflow-hidden">
-            <div className="bg-white px-7 py-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-[20px] font-extrabold text-slate-900">Create New Task</h3>
-              <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer">✕</button>
-            </div>
-            <form onSubmit={handleCreateTask} className="p-7 space-y-5">
-              <div>
-                <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Task Title *</label>
-                <input type="text" required value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder="e.g. Update Q3 Marketing Strategy" className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 placeholder:text-slate-400 focus:border-[#5B5FEF] focus:ring-4 focus:ring-[#5B5FEF]/10 focus:outline-none transition-all" />
+          {/* ================= RIGHT COLUMN: INTERACTIVE CALENDAR & DAY HISTORY ================= */}
+          <div className="xl:col-span-4 flex flex-col gap-6">
+            
+            {/* 1. Real Interactive Calendar Widget */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white">{t("workspace_calendar")}</h3>
+                <span className="text-[11px] font-bold text-[#5B5FEF] bg-[#EEF0FF] dark:bg-[#5B5FEF]/20 px-2.5 py-1 rounded-lg">
+                  {t("interactive")}
+                </span>
               </div>
-              <div>
-                <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Description (Optional)</label>
-                <textarea rows={3} value={newTaskDesc} onChange={(e) => setNewTaskDesc(e.target.value)} placeholder="Add context, links, or sub-tasks..." className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 placeholder:text-slate-400 focus:border-[#5B5FEF] focus:ring-4 focus:ring-[#5B5FEF]/10 focus:outline-none transition-all resize-none" />
-              </div>
-              <div className="grid grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Priority Level</label>
-                  <select value={newTaskPriority} onChange={(e) => setNewTaskPriority(e.target.value as never)} className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-[14px] font-bold text-slate-700 focus:border-[#5B5FEF] focus:ring-4 focus:ring-[#5B5FEF]/10 focus:outline-none transition-all cursor-pointer">
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Category Tag</label>
-                  <input type="text" value={newTaskTag} onChange={(e) => setNewTaskTag(e.target.value)} placeholder="e.g. Design" className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 placeholder:text-slate-400 focus:border-[#5B5FEF] focus:ring-4 focus:ring-[#5B5FEF]/10 focus:outline-none transition-all" />
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-3 pt-6 mt-6 border-t border-slate-100">
-                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl text-[14px] font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer">Cancel</button>
-                <button type="submit" disabled={isCreating} className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#5B5FEF] hover:bg-[#4F46E5] text-white text-[14px] font-bold shadow-md shadow-[#5B5FEF]/20 transition-all cursor-pointer disabled:opacity-50">
-                  {isCreating ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : "Create Task"}
+
+              {/* Month Navigation */}
+              <div className="flex items-center justify-between text-[14px] font-black text-slate-800 dark:text-slate-200 mb-4 px-1">
+                <button
+                  onClick={handlePrevMonth}
+                  className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span>{currentMonthYear}</span>
+                <button
+                  onClick={handleNextMonth}
+                  className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
-            </form>
+
+              {/* Days Header */}
+              <div className="grid grid-cols-7 text-center text-[11px] font-extrabold text-slate-400 uppercase mb-2">
+                <div>{t("days_mo")}</div>
+                <div>{t("days_tu")}</div>
+                <div>{t("days_we")}</div>
+                <div>{t("days_th")}</div>
+                <div>{t("days_fr")}</div>
+                <div>{t("days_sa")}</div>
+                <div>{t("days_su")}</div>
+              </div>
+
+              {/* Calendar Days Matrix */}
+              <div className="grid grid-cols-7 text-center text-[12px] font-bold gap-y-2">
+                {/* Empty offset slots */}
+                {Array.from({ length: firstDayIndex }).map((_, i) => (
+                  <div key={`empty-${i}`} className="h-9" />
+                ))}
+
+                {/* Month Days */}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const dayNum = i + 1;
+                  const dateObj = new Date(year, month, dayNum);
+                  const isToday =
+                    new Date().getDate() === dayNum &&
+                    new Date().getMonth() === month &&
+                    new Date().getFullYear() === year;
+
+                  const isSelected =
+                    selectedDate.getDate() === dayNum &&
+                    selectedDate.getMonth() === month &&
+                    selectedDate.getFullYear() === year;
+
+                  const dayTasks = getTasksForDate(dateObj);
+                  const hasTasks = dayTasks.length > 0;
+
+                  return (
+                    <div key={`day-${dayNum}`} className="flex flex-col items-center justify-center">
+                      <button
+                        onClick={() => setSelectedDate(dateObj)}
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center relative transition-all cursor-pointer font-bold ${
+                          isSelected
+                            ? "bg-[#5B5FEF] text-white shadow-md shadow-[#5B5FEF]/30 scale-105"
+                            : isToday
+                            ? "border-2 border-[#5B5FEF] text-[#5B5FEF] dark:text-[#818CF8]"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {dayNum}
+                        {hasTasks && !isSelected && (
+                          <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Selected Day Task History & Details (Paginated at 5 tasks) */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white">
+                      {t("day_schedule")}
+                    </h3>
+                    <p className="text-[12px] text-slate-500 font-medium">
+                      {selectedDate.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    {selectedDateTasks.length} {selectedDateTasks.length === 1 ? t("task_singular") : t("tasks_plural")}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {selectedDateTasks.length === 0 ? (
+                    <div className="py-6 text-center">
+                      <p className="text-[13px] text-slate-400 font-medium">{t("no_tasks_date")}</p>
+                    </div>
+                  ) : (
+                    paginatedScheduleTasks.map((tItem) => (
+                      <div
+                        key={tItem._id}
+                        className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 hover:border-[#5B5FEF]/30 transition-all"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#5B5FEF] dark:text-[#818CF8]">
+                            {t(`priority_${tItem.priority}`)} {t("col_priority")}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {t(`status_${tItem.status}`)}
+                          </span>
+                        </div>
+                        <h4 className="text-[13px] font-bold text-slate-900 dark:text-white truncate">{tItem.title}</h4>
+                        {tItem.description && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{tItem.description}</p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Schedule Pagination Controls (Max 5 per page) */}
+              {totalSchedulePages > 1 && (
+                <div className="flex items-center justify-between pt-4 mt-3 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-[12px] font-bold text-slate-500">
+                    {t("page")} {schedulePage} {t("of")} {totalSchedulePages}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSchedulePage((prev) => Math.max(prev - 1, 1))}
+                      disabled={schedulePage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setSchedulePage((prev) => Math.min(prev + 1, totalSchedulePages))}
+                      disabled={schedulePage === totalSchedulePages}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3. Urgent Reminders Widget */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-red-500" /> {t("high_priority_attention")}
+                </h3>
+              </div>
+
+              <div className="space-y-3">
+                {tasks
+                  .filter((tItem) => tItem.priority === "urgent" || tItem.priority === "high")
+                  .slice(0, 3)
+                  .map((task) => (
+                    <div
+                      key={task._id}
+                      className="p-3.5 rounded-2xl bg-red-50/40 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 flex items-start justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <h4 className="text-[13px] font-bold text-slate-900 dark:text-white truncate">{task.title}</h4>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            {task.dueDate ? new Date(task.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : t("no_due_date")}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-300 shrink-0">
+                        {t(`priority_${task.priority}`)}
+                      </span>
+                    </div>
+                  ))}
+
+                {tasks.filter((tItem) => tItem.priority === "urgent" || tItem.priority === "high").length === 0 && (
+                  <div className="py-4 text-center text-[12px] text-slate-400 font-medium">
+                    {t("no_urgent_tasks")}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Sprint Velocity & Milestone Progress Widget */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-500" /> {t("sprint_goals")}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10.5px] font-extrabold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    {t("velocity_on_track")}
+                  </span>
+                </div>
+
+                {/* Milestone Progress Bar */}
+                <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 mb-4">
+                  <div className="flex items-center justify-between text-[12px] mb-2 font-bold">
+                    <span className="text-slate-600 dark:text-slate-300">{t("monthly_milestone")}</span>
+                    <span className="text-[#5B5FEF] font-black">{productivityPercent}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#5B5FEF] to-[#10B981] rounded-full transition-all duration-700"
+                      style={{ width: `${Math.max(productivityPercent, 8)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Top Contributors Leaderboard */}
+                <div>
+                  <h4 className="text-[12px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                    <Award className="w-3.5 h-3.5 text-[#5B5FEF]" /> {t("top_contributors")}
+                  </h4>
+                  <div className="space-y-2">
+                    {topContributors.length === 0 ? (
+                      <div className="text-[12px] text-slate-400 font-medium py-2 text-center">
+                        Active contributors will appear as tasks are assigned.
+                      </div>
+                    ) : (
+                      topContributors.map((c, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/60 hover:border-[#5B5FEF]/30 transition-all"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-7 h-7 rounded-full bg-[#0052CC] text-white flex items-center justify-center font-black text-[10px] shrink-0 overflow-hidden shadow-2xs">
+                              {c.avatarUrl ? (
+                                <img src={c.avatarUrl} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                c.initials
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[12.5px] font-bold text-slate-900 dark:text-white truncate">{c.name}</p>
+                              <p className="text-[10px] text-slate-400 font-medium">{c.department}</p>
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 text-[#5B5FEF] dark:text-indigo-300 font-extrabold text-[11px] rounded-md shrink-0">
+                            {c.completed} / {c.total} {t("tasks_label")}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Quick Shortcuts & System Health Widget */}
+            <div className="bg-white dark:bg-slate-900 rounded-[24px] p-6 shadow-sm border border-slate-200/70 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4.5 h-4.5 text-[#5B5FEF]" /> {t("quick_shortcuts")}
+                </h3>
+              </div>
+
+              {/* Action Buttons Grid */}
+              <div className="grid grid-cols-2 gap-2.5 mb-4">
+                <Link
+                  href="/tasks"
+                  className="p-3 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 hover:bg-[#5B5FEF] hover:text-white text-slate-700 dark:text-slate-200 border border-indigo-100/80 dark:border-indigo-900/40 text-[12px] font-bold flex items-center gap-2 transition-all cursor-pointer group"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#5B5FEF] group-hover:text-white transition-colors" />
+                  <span className="truncate">{t("create_task")}</span>
+                </Link>
+                <Link
+                  href="/employees"
+                  className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-[#5B5FEF] hover:text-white text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700 text-[12px] font-bold flex items-center gap-2 transition-all cursor-pointer group"
+                >
+                  <Users className="w-3.5 h-3.5 text-[#5B5FEF] group-hover:text-white transition-colors" />
+                  <span className="truncate">{t("invite_member")}</span>
+                </Link>
+                <Link
+                  href="/analytics"
+                  className="p-3 rounded-xl col-span-2 bg-slate-50 dark:bg-slate-800 hover:bg-[#5B5FEF] hover:text-white text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700 text-[12px] font-bold flex items-center justify-center gap-2 transition-all cursor-pointer group"
+                >
+                  <FileText className="w-3.5 h-3.5 text-[#5B5FEF] group-hover:text-white transition-colors" />
+                  <span>{t("export_report")}</span>
+                </Link>
+              </div>
+
+              {/* Platform SLA Health Card */}
+              <div className="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-[12px] font-extrabold text-emerald-800 dark:text-emerald-300">
+                    {t("system_operational")}
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                  {t("system_uptime")}
+                </span>
+              </div>
+            </div>
+
           </div>
+
         </div>
+
+      </main>
       )}
     </div>
   );

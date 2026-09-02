@@ -23,6 +23,9 @@ export interface IUser extends Document {
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   refreshTokens: string[];
+  isBlocked?: boolean;
+  blockedAt?: Date;
+  blockedReason?: string;
 
   // HR Fields
   employmentInfo?: {
@@ -78,7 +81,10 @@ const userSchema = new Schema<IUser>(
       trim: true,
       minlength: [2, "First name must be at least 2 characters"],
       maxlength: [40, "First name cannot exceed 40 characters"],
-      match: [/^[A-Za-z\s'-]+$/, "First name can only contain letters, spaces, hyphens or apostrophes"],
+      match: [
+        /^[A-Za-z\s'-]+$/,
+        "First name can only contain letters, spaces, hyphens or apostrophes",
+      ],
     },
     lastName: {
       type: String,
@@ -86,7 +92,10 @@ const userSchema = new Schema<IUser>(
       trim: true,
       minlength: [1, "Last name must be at least 1 character"],
       maxlength: [40, "Last name cannot exceed 40 characters"],
-      match: [/^[A-Za-z\s'-]+$/, "Last name can only contain letters, spaces, hyphens or apostrophes"],
+      match: [
+        /^[A-Za-z\s'-]+$/,
+        "Last name can only contain letters, spaces, hyphens or apostrophes",
+      ],
     },
     email: {
       type: String,
@@ -177,6 +186,17 @@ const userSchema = new Schema<IUser>(
       default: [],
       select: false,
     },
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    blockedAt: {
+      type: Date,
+    },
+    blockedReason: {
+      type: String,
+      trim: true,
+    },
     employmentInfo: {
       joiningDate: { type: Date },
       workLocation: { type: String, default: "Office" },
@@ -215,10 +235,8 @@ const userSchema = new Schema<IUser>(
       theme: { type: String, enum: ["light", "dark", "system"], default: "system" },
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
-
-
 
 // Virtual: is the account currently locked out due to brute-force attempts
 userSchema.virtual("isLocked").get(function (this: IUser) {
@@ -236,13 +254,18 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-userSchema.methods.comparePassword = async function (candidate: string): Promise<boolean> {
+userSchema.methods.comparePassword = async function (
+  candidate: string,
+): Promise<boolean> {
   return bcrypt.compare(candidate, this.password);
 };
 
 userSchema.methods.createPasswordResetToken = function (): string {
   const resetToken = crypto.randomBytes(32).toString("hex");
-  this.passwordResetToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+  this.passwordResetToken = crypto
+    .createHash("sha256")
+    .update(resetToken)
+    .digest("hex");
   const expiresMin = Number(process.env.RESET_TOKEN_EXPIRES_MIN || 30);
   this.passwordResetExpires = new Date(Date.now() + expiresMin * 60 * 1000);
   return resetToken;

@@ -13,6 +13,9 @@ export interface User {
   isEmailVerified: boolean;
   avatarUrl?: string;
   coverUrl?: string;
+  isBlocked?: boolean;
+  blockedAt?: string;
+  blockedReason?: string;
   employmentInfo?: {
     joiningDate?: string;
     workLocation?: string;
@@ -52,18 +55,51 @@ export interface User {
   createdAt: string;
 }
 
+export interface AssignedUser {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  avatarUrl?: string;
+  department?: string;
+  role?: string;
+  employeeId?: string;
+}
+
 export interface Task {
   _id: string;
+  taskCode: string;
   title: string;
   description?: string;
   status: "todo" | "in_progress" | "review" | "completed";
   priority: "low" | "medium" | "high" | "urgent";
   dueDate?: string;
-  assignedTo?: string;
+  assignedTo?: (AssignedUser | string)[];
+  createdBy?: {
+    _id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    role?: string;
+  } | string;
   department?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface NotificationItem {
+  _id: string;
+  recipient: string;
+  sender?: string;
+  senderName?: string;
+  title: string;
+  message: string;
+  type: "task" | "finance" | "event" | "alert" | "system";
+  task?: string;
+  taskCode?: string;
+  read: boolean;
+  createdAt: string;
 }
 
 export interface RegisterFormData {
@@ -79,6 +115,7 @@ export interface RegisterFormData {
   employeeId: string;
   dateOfBirth: string;
   agreeToTerms: boolean;
+  avatarUrl?: string;
 }
 
 export interface LoginFormData {

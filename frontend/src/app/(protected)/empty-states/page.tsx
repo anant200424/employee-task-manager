@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { api } from "@/lib/api";
 import { Megaphone, MessageSquare, Send, Loader2, Plus, FolderKanban, Info } from "lucide-react";
 
@@ -31,6 +32,7 @@ const initialProjects: ProjectItem[] = [
 
 export default function WorkspaceHubPage() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const isAdmin = user?.role === "admin";
 
   const [loading, setLoading] = useState(true);
@@ -129,7 +131,7 @@ export default function WorkspaceHubPage() {
   return (
     <div className="min-h-screen bg-transparent pb-12">
       <Topbar
-        title="Workspace Hub"
+        title={t("workspace_hub", "Workspace Hub")}
         subtitle="Stay connected with announcements, discussions, and company projects."
       />
 

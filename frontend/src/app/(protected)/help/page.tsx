@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Topbar } from "@/components/dashboard/Topbar";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   Search,
   Book,
@@ -42,6 +43,7 @@ const categories = [
 ];
 
 export default function HelpCenterPage() {
+  const { t } = useLanguage();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -53,7 +55,7 @@ export default function HelpCenterPage() {
   return (
     <div className="flex h-screen bg-[#F4F8FB] dark:bg-[#0B1120] overflow-hidden transition-colors duration-300">
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <Topbar title="Help Center" subtitle="Find answers, guides, and support resources." />
+        <Topbar title={t("help", "Help & Support")} subtitle="Find answers, guides, and support resources." />
         
         <div className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-10 relative z-10">
           <div className="max-w-5xl mx-auto space-y-10">

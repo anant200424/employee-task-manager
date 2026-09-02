@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from "lucide-react";
@@ -9,6 +9,7 @@ import { LoginFormData, FormErrors } from "@/types/auth";
 import { validateLoginForm } from "@/lib/validation";
 import { api, extractApiError, setAccessToken } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import toast from "react-hot-toast";
 
 export const LoginForm = () => {
   const router = useRouter();
@@ -24,8 +25,24 @@ export const LoginForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  useEffect(() => {
+    router.prefetch("/dashboard");
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("blocked") === "1") {
+        setFormError(
+          "Access Denied: Your employee account has been suspended/blocked by the administrator. Please contact IT Support or HR.",
+        );
+      }
+    }
+  }, [router]);
+
+  const isFormFilled = Boolean(data.email.trim() !== "" && data.password.trim() !== "");
+  const canSubmit = isFormFilled && !isSubmitting;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canSubmit) return;
     setFormError(null);
 
     const validationErrors = validateLoginForm(data);
@@ -38,6 +55,7 @@ export const LoginForm = () => {
       const { accessToken, user } = res.data.data;
       setAccessToken(accessToken);
       setUser(user);
+      toast.success("Login successful! Welcome to Dashboard.");
       router.push("/dashboard");
     } catch (err) {
       const { message } = extractApiError(err);
@@ -69,30 +87,31 @@ export const LoginForm = () => {
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         {/* Work Email */}
         <div>
-          <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
+          <label className="block text-[13.5px] font-bold text-slate-800 mb-1.5">
             Work Email <span className="text-red-500">*</span>
           </label>
           <div className="relative">
-            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 pointer-events-none" />
             <input
               type="email"
               name="email"
               value={data.email}
               onChange={(e) => {
                 setData((p) => ({ ...p, email: e.target.value }));
-                if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
+                if (errors.email)
+                  setErrors((p) => ({ ...p, email: undefined }));
               }}
               placeholder="you@company.com"
-              className={`w-full rounded-xl border ${
+              className={`w-full rounded-xl border-2 ${
                 errors.email
                   ? "border-red-400 bg-red-50/30"
-                  : "border-slate-300 bg-white hover:border-slate-400"
-              } py-2.5 pl-10 pr-3.5 text-[13.5px] text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-[#4355CC] focus:ring-2 focus:ring-[#4355CC]/10 focus:outline-none shadow-sm transition-all`}
+                  : "border-slate-300 bg-white hover:border-[#4355CC]/50"
+              } py-3 pl-11 pr-4 text-[14px] font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:bg-white focus:border-[#4355CC] focus:ring-4 focus:ring-[#4355CC]/10 focus:outline-none shadow-2xs transition-all`}
               autoComplete="email"
             />
           </div>
           {errors.email && (
-            <p className="mt-1 text-[12px] font-medium text-red-500 flex items-center gap-1">
+            <p className="mt-1 text-[12px] font-bold text-red-500 flex items-center gap-1">
               <AlertCircle className="w-3.5 h-3.5" />
               {errors.email}
             </p>
@@ -101,42 +120,43 @@ export const LoginForm = () => {
 
         {/* Password */}
         <div>
-          <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">
+          <label className="block text-[13.5px] font-bold text-slate-800 mb-1.5">
             Password <span className="text-red-500">*</span>
           </label>
           <div className="relative">
-            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 pointer-events-none" />
             <input
               type={showPassword ? "text" : "password"}
               name="password"
               value={data.password}
               onChange={(e) => {
                 setData((p) => ({ ...p, password: e.target.value }));
-                if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+                if (errors.password)
+                  setErrors((p) => ({ ...p, password: undefined }));
               }}
               placeholder="Enter your password"
-              className={`w-full rounded-xl border ${
+              className={`w-full rounded-xl border-2 ${
                 errors.password
                   ? "border-red-400 bg-red-50/30"
-                  : "border-slate-300 bg-white hover:border-slate-400"
-              } py-2.5 pl-10 pr-10 text-[13.5px] text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-[#4355CC] focus:ring-2 focus:ring-[#4355CC]/10 focus:outline-none shadow-sm transition-all`}
+                  : "border-slate-300 bg-white hover:border-[#4355CC]/50"
+              } py-3 pl-11 pr-11 text-[14px] font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:bg-white focus:border-[#4355CC] focus:ring-4 focus:ring-[#4355CC]/10 focus:outline-none shadow-2xs transition-all`}
               autoComplete="current-password"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
               tabIndex={-1}
             >
               {showPassword ? (
-                <EyeOff className="w-4 h-4" />
+                <EyeOff className="w-4.5 h-4.5" />
               ) : (
-                <Eye className="w-4 h-4" />
+                <Eye className="w-4.5 h-4.5" />
               )}
             </button>
           </div>
           {errors.password && (
-            <p className="mt-1 text-[12px] font-medium text-red-500 flex items-center gap-1">
+            <p className="mt-1 text-[12px] font-bold text-red-500 flex items-center gap-1">
               <AlertCircle className="w-3.5 h-3.5" />
               {errors.password}
             </p>
@@ -152,15 +172,15 @@ export const LoginForm = () => {
               onChange={(e) =>
                 setData((p) => ({ ...p, rememberMe: e.target.checked }))
               }
-              className="h-4 w-4 rounded border-slate-300 text-[#4355CC] focus:ring-[#4355CC]/20 cursor-pointer"
+              className="h-4.5 w-4.5 rounded border-2 border-slate-300 text-[#4355CC] focus:ring-[#4355CC]/20 cursor-pointer"
             />
-            <span className="text-[13px] text-slate-600 font-normal">
+            <span className="text-[13px] text-slate-700 font-bold">
               Remember me
             </span>
           </label>
           <Link
             href="/forgot-password"
-            className="text-[13px] font-semibold text-[#4355CC] hover:underline"
+            className="text-[13px] font-bold text-[#4355CC] hover:underline"
           >
             Forgot password?
           </Link>
@@ -170,15 +190,20 @@ export const LoginForm = () => {
         <div className="pt-2">
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#4355CC] hover:bg-[#3747B8] active:scale-[0.99] py-3 text-[14.5px] font-medium text-white shadow-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={!canSubmit}
+            className={`group relative w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[15px] font-extrabold text-white transition-all overflow-hidden ${
+              !canSubmit
+                ? "bg-[#4355CC]/40 text-white/70 cursor-not-allowed opacity-50 backdrop-blur-xs pointer-events-none shadow-none"
+                : "bg-[#4355CC] hover:bg-[#3644A8] hover:shadow-[0_8px_20px_-6px_rgba(67,85,204,0.5)] active:scale-[0.99] cursor-pointer"
+            }`}
           >
+            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer" />
             {isSubmitting ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
                 <span>Login</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4.5 h-4.5 transition-transform group-hover:translate-x-1" />
               </>
             )}
           </button>

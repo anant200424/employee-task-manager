@@ -12,12 +12,23 @@ interface PasswordInputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
-  ({ label, error, required, showStrength, id, value, className, ...rest }, ref) => {
+  (
+    { label, error, required, showStrength, id, value, className, ...rest },
+    ref,
+  ) => {
     const [visible, setVisible] = useState(false);
     const inputId = id || rest.name;
-    const strength = showStrength ? getPasswordStrength(String(value || "")) : null;
+    const strength = showStrength
+      ? getPasswordStrength(String(value || ""))
+      : null;
 
-    const barColors = ["bg-red-500", "bg-orange-500", "bg-amber-500", "bg-emerald-500", "bg-emerald-600"];
+    const barColors = [
+      "bg-red-500",
+      "bg-orange-500",
+      "bg-amber-500",
+      "bg-emerald-500",
+      "bg-emerald-600",
+    ];
 
     return (
       <div>
@@ -43,7 +54,11 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             aria-label={visible ? "Hide password" : "Show password"}
             tabIndex={-1}
           >
-            {visible ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+            {visible ? (
+              <EyeOff className="h-4.5 w-4.5" />
+            ) : (
+              <Eye className="h-4.5 w-4.5" />
+            )}
           </button>
         </div>
 
@@ -54,7 +69,9 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
                 <span
                   key={i}
                   className={`h-1.5 flex-1 rounded-full transition-colors ${
-                    strength && i <= strength.score ? barColors[strength.score] : "bg-ink-100"
+                    strength && i <= strength.score
+                      ? barColors[strength.score]
+                      : "bg-ink-100"
                   }`}
                 />
               ))}
@@ -65,9 +82,13 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
                   "8+ characters": strength.checks.length,
                   Uppercase: strength.checks.uppercase,
                   Lowercase: strength.checks.lowercase,
-                  "Number & symbol": strength.checks.number && strength.checks.special,
+                  "Number & symbol":
+                    strength.checks.number && strength.checks.special,
                 }).map(([label2, pass]) => (
-                  <span key={label2} className="flex items-center gap-1 text-[12px] text-ink-500">
+                  <span
+                    key={label2}
+                    className="flex items-center gap-1 text-[12px] text-ink-500"
+                  >
                     {pass ? (
                       <Check className="h-3 w-3 text-emerald-600" />
                     ) : (
@@ -88,7 +109,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 PasswordInput.displayName = "PasswordInput";

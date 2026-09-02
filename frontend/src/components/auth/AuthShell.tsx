@@ -1,11 +1,5 @@
 import { ReactNode } from "react";
-import {
-  ShieldCheck,
-  Users,
-  Zap,
-  ArrowUpRight,
-  Check,
-} from "lucide-react";
+import { ShieldCheck, Users, Zap, ArrowUpRight, Check } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 
 interface AuthShellProps {
@@ -26,7 +20,6 @@ export const AuthShell = ({
   return (
     <main className="auth-ui min-h-screen bg-[#F4F6FC] text-[#172554]">
       <div className="relative min-h-screen overflow-hidden">
-
         {/* ================================
             BACKGROUND
         ================================= */}
@@ -60,7 +53,8 @@ export const AuthShell = ({
           <div
             className="absolute right-[5%] top-[4%] h-24 w-24 opacity-40"
             style={{
-              backgroundImage: "radial-gradient(#7C5CFC 1.5px, transparent 1.5px)",
+              backgroundImage:
+                "radial-gradient(#7C5CFC 1.5px, transparent 1.5px)",
               backgroundSize: "12px 12px",
             }}
           />
@@ -71,13 +65,11 @@ export const AuthShell = ({
         ================================= */}
 
         <div className="relative z-10 mx-auto grid min-h-screen max-w-[1500px] lg:grid-cols-[45%_55%]">
-
           {/* ================================
               LEFT MARKETING SECTION
           ================================= */}
 
           <section className="hidden flex-col justify-between px-10 py-8 lg:flex xl:px-14">
-
             {/* Brand */}
             <div>
               <BrandMark variant="dark" />
@@ -85,7 +77,6 @@ export const AuthShell = ({
 
             {/* Main content */}
             <div className="max-w-[540px]">
-
               {/* Eyebrow */}
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#DCD8FF] bg-white/80 px-3.5 py-2 text-[11px] font-semibold tracking-wide text-[#5545D8] shadow-sm backdrop-blur">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#EEEAFE]">
@@ -97,7 +88,6 @@ export const AuthShell = ({
 
               {/* Heading */}
               <h1 className="max-w-[540px] text-[48px] font-bold leading-[1.05] tracking-[-0.04em] text-[#14224A] xl:text-[54px]">
-
                 {headline}
 
                 {highlightedHeadline && (
@@ -118,7 +108,6 @@ export const AuthShell = ({
 
               {/* Feature cards */}
               <div className="mt-8 space-y-3">
-
                 <FeatureCard
                   icon={<ShieldCheck className="h-5 w-5" />}
                   iconClass="bg-[#EEEAFE] text-[#624DE7]"
@@ -139,7 +128,6 @@ export const AuthShell = ({
                   title="Fast and simple onboarding"
                   description="Start working without unnecessary complexity"
                 />
-
               </div>
             </div>
 
@@ -158,15 +146,11 @@ export const AuthShell = ({
           ================================= */}
 
           <section className="flex min-h-screen items-center justify-center px-4 py-6 sm:px-6 lg:px-8">
-
             <div className="w-full max-w-[570px]">
-
               {/* Card */}
               <div className="auth-card overflow-hidden rounded-[22px] border border-[#DCE1EB] bg-white shadow-[0_20px_60px_rgba(31,41,80,0.10)]">
-
                 {/* Card Header */}
                 <div className="border-b border-[#E6E9F0] px-6 py-6 sm:px-7 sm:py-7">
-
                   <div className="mb-3 flex items-center gap-2 text-[10px] font-bold tracking-[0.16em] text-[#6353D9]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#6353D9]" />
                     {eyebrow}
@@ -182,9 +166,7 @@ export const AuthShell = ({
                 </div>
 
                 {/* Form */}
-                <div className="px-6 py-6 sm:px-7 sm:py-7">
-                  {children}
-                </div>
+                <div className="px-6 py-6 sm:px-7 sm:py-7">{children}</div>
               </div>
 
               {/* Bottom links */}
@@ -195,7 +177,6 @@ export const AuthShell = ({
                 <span className="text-[#CBD1DC]">•</span>
                 <span>Contact Us</span>
               </div>
-
             </div>
           </section>
         </div>
@@ -203,7 +184,6 @@ export const AuthShell = ({
     </main>
   );
 };
-
 
 /* ==========================================
    FEATURE CARD
@@ -224,7 +204,6 @@ const FeatureCard = ({
 }: FeatureCardProps) => {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-[#E1E5EE] bg-white/80 px-4 py-3.5 shadow-[0_6px_20px_rgba(35,45,80,0.04)] backdrop-blur">
-
       <div
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconClass}`}
       >
@@ -232,20 +211,15 @@ const FeatureCard = ({
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold text-[#24304D]">
-          {title}
-        </p>
+        <p className="text-[13px] font-semibold text-[#24304D]">{title}</p>
 
-        <p className="mt-0.5 text-[11px] text-[#7A879C]">
-          {description}
-        </p>
+        <p className="mt-0.5 text-[11px] text-[#7A879C]">{description}</p>
       </div>
 
       <Check className="h-4 w-4 shrink-0 text-[#17B49F]" />
     </div>
   );
 };
-
 
 /* ==========================================
    CARD TITLE
@@ -262,7 +236,6 @@ const getTitle = (eyebrow: string) => {
 
   return "Create your account";
 };
-
 
 /* ==========================================
    CARD DESCRIPTION

@@ -12,7 +12,10 @@ interface AuthInputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
-  ({ label, error, hint, showValid, required, id, className, ...rest }, ref) => {
+  (
+    { label, error, hint, showValid, required, id, className, ...rest },
+    ref,
+  ) => {
     const inputId = id || rest.name;
     return (
       <div>
@@ -43,7 +46,7 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
         ) : null}
       </div>
     );
-  }
+  },
 );
 
 AuthInput.displayName = "AuthInput";

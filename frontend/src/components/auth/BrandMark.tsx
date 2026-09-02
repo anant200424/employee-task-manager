@@ -9,15 +9,19 @@ export const BrandMark = ({ variant = "dark" }: BrandMarkProps) => {
     <div className="flex items-center gap-2.5">
       {/* EmpSphere Two Circles Logo Mark */}
       <div className="relative flex items-center shrink-0">
-        <div className={`w-6 h-6 rounded-full ${isLight ? "bg-white" : "bg-[#1E293B]"}`} />
-        <div className={`w-6 h-6 rounded-full -ml-2.5 ${isLight ? "bg-[#60A5FA]" : "bg-[#4355CC]"} opacity-90 mix-blend-multiply`} />
+        <div
+          className={`w-6 h-6 rounded-full ${isLight ? "bg-white" : "bg-[#1E293B] dark:bg-indigo-500"}`}
+        />
+        <div
+          className={`w-6 h-6 rounded-full -ml-2.5 ${isLight ? "bg-[#60A5FA]" : "bg-[#4355CC] dark:bg-indigo-300"} opacity-90 mix-blend-multiply`}
+        />
       </div>
 
       {/* Brand Name */}
       <div className="flex flex-col">
         <span
           className={`text-[19px] font-bold tracking-tight leading-none ${
-            isLight ? "text-white" : "text-[#0F172A]"
+            isLight ? "text-white" : "text-[#0F172A] dark:text-white"
           }`}
         >
           EmpSphere

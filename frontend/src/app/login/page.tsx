@@ -92,7 +92,7 @@ export default function LoginPage() {
             RIGHT COLUMN (Form Card)
         ======================================================= */}
         <section className="lg:col-span-6 flex justify-center lg:justify-end">
-          <div className="w-full max-w-[450px] bg-white rounded-[28px] shadow-[0_20px_50px_-15px_rgba(15,23,42,0.08)] border border-slate-300 p-8 sm:p-10 lg:p-11">
+          <div className="w-full max-w-[490px] bg-white rounded-[28px] shadow-[0_20px_50px_-15px_rgba(15,23,42,0.08)] border border-slate-300 p-8 sm:p-10 lg:p-11">
             <LoginForm />
           </div>
         </section>

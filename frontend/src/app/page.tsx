@@ -10,13 +10,34 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (isLoading) return;
-    router.replace(isAuthenticated ? "/dashboard" : "/login");
+    const target = isAuthenticated ? "/dashboard" : "/login";
+    if (!isLoading) {
+      router.replace(target);
+      const timer = setTimeout(() => {
+        if (typeof window !== "undefined" && window.location.pathname === "/") {
+          window.location.href = target;
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      // Fallback timeout in case auth check takes long
+      const safetyTimer = setTimeout(() => {
+        if (typeof window !== "undefined" && window.location.pathname === "/") {
+          window.location.href = target;
+        }
+      }, 1000);
+      return () => clearTimeout(safetyTimer);
+    }
   }, [isAuthenticated, isLoading, router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-ink-50">
-      <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+    <div className="flex min-h-screen items-center justify-center bg-[#F4F6FA] dark:bg-[#0B0F17]">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-7 w-7 animate-spin text-[#5B5FEF]" />
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+          Loading EmpSphere...
+        </p>
+      </div>
     </div>
   );
 }

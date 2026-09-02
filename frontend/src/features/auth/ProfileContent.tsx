@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { api, extractApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   User,
   Building2,
@@ -12,7 +12,13 @@ import {
   CheckCircle2,
   Camera,
   Trash2,
+  Image as ImageIcon,
+  Mail,
+  Phone,
+  Briefcase,
+  CreditCard,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 
 import { PersonalInfoTab } from "@/components/profile/PersonalInfoTab";
 import { EmploymentInfoTab } from "@/components/profile/EmploymentInfoTab";
@@ -26,17 +32,17 @@ export const ProfileContent = () => {
   const { user, setUser } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabId>("personal");
-  
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || "");
   const [coverUrl, setCoverUrl] = useState(user?.coverUrl || "");
-  const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [updatingAvatar, setUpdatingAvatar] = useState(false);
+  const [updatingCover, setUpdatingCover] = useState(false);
 
   const TABS = [
     { id: "personal", label: "Personal Information", icon: User },
     { id: "employment", label: "Employment Information", icon: Building2 },
-    { id: "compliance", label: "Compliance", icon: ShieldCheck },
-    { id: "documents", label: "Documents", icon: FolderOpen },
-    { id: "salary", label: "Salary Structure", icon: IndianRupee },
+    { id: "compliance", label: "Compliance & Legal", icon: ShieldCheck },
+    { id: "documents", label: "Uploaded Documents", icon: FolderOpen },
+    { id: "salary", label: "Salary & CTC", icon: IndianRupee },
   ];
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,11 +50,11 @@ export const ProfileContent = () => {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setProfileMsg({ type: "error", text: "Please select a valid image file" });
+      toast.error("Please select a valid image file (PNG, JPG, WEBP)");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      setProfileMsg({ type: "error", text: "Image file size must be less than 5MB" });
+      toast.error("Avatar image size must be under 5MB");
       return;
     }
 
@@ -57,22 +63,34 @@ export const ProfileContent = () => {
       const result = reader.result as string;
       setAvatarUrl(result);
       try {
+        setUpdatingAvatar(true);
         const res = await api.patch("/users/me", { avatarUrl: result });
-        setUser(res.data.data.user);
-      } catch (err) {
-        setProfileMsg({ type: "error", text: "Failed to upload avatar" });
+        if (res.data?.data?.user) {
+          setUser(res.data.data.user);
+          toast.success("Profile picture updated");
+        }
+      } catch (err: any) {
+        toast.error("Failed to save avatar image");
+      } finally {
+        setUpdatingAvatar(false);
       }
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveAvatar = async () => {
-    setAvatarUrl("");
     try {
+      setUpdatingAvatar(true);
+      setAvatarUrl("");
       const res = await api.patch("/users/me", { avatarUrl: "" });
-      setUser(res.data.data.user);
+      if (res.data?.data?.user) {
+        setUser(res.data.data.user);
+        toast.success("Profile picture removed");
+      }
     } catch (err) {
-      setProfileMsg({ type: "error", text: "Failed to remove avatar" });
+      toast.error("Failed to remove profile picture");
+    } finally {
+      setUpdatingAvatar(false);
     }
   };
 
@@ -81,11 +99,11 @@ export const ProfileContent = () => {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setProfileMsg({ type: "error", text: "Please select a valid image file" });
+      toast.error("Please select a valid image file for cover");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setProfileMsg({ type: "error", text: "Cover image file size must be less than 10MB" });
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Cover banner size must be under 8MB");
       return;
     }
 
@@ -94,22 +112,34 @@ export const ProfileContent = () => {
       const result = reader.result as string;
       setCoverUrl(result);
       try {
+        setUpdatingCover(true);
         const res = await api.patch("/users/me", { coverUrl: result });
-        setUser(res.data.data.user);
+        if (res.data?.data?.user) {
+          setUser(res.data.data.user);
+          toast.success("Cover banner updated");
+        }
       } catch (err) {
-        setProfileMsg({ type: "error", text: "Failed to upload cover image" });
+        toast.error("Failed to update cover banner");
+      } finally {
+        setUpdatingCover(false);
       }
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveCover = async () => {
-    setCoverUrl("");
     try {
+      setUpdatingCover(true);
+      setCoverUrl("");
       const res = await api.patch("/users/me", { coverUrl: "" });
-      setUser(res.data.data.user);
+      if (res.data?.data?.user) {
+        setUser(res.data.data.user);
+        toast.success("Cover banner removed");
+      }
     } catch (err) {
-      setProfileMsg({ type: "error", text: "Failed to remove cover" });
+      toast.error("Failed to remove cover banner");
+    } finally {
+      setUpdatingCover(false);
     }
   };
 
@@ -117,92 +147,205 @@ export const ProfileContent = () => {
     ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase()
     : "EM";
 
+  const isAdmin = user?.role === "admin";
+
   return (
-    <div className="w-full bg-slate-50 min-h-screen pb-16">
-      {/* Hero Banner Section */}
-      <div className="h-48 w-full bg-gradient-to-r from-blue-50 via-indigo-50/50 to-white relative flex-shrink-0 border-b border-slate-200/60 overflow-hidden group">
-        {coverUrl ? (
-          <img src={coverUrl} alt="Profile Cover" className="w-full h-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03]"></div>
-        )}
+    <div className="w-full min-h-screen bg-transparent pb-24 transition-colors duration-300">
+      <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6 animate-in fade-in duration-500">
         
-        {/* Cover Image Upload/Delete Controls (Hover) */}
-        <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          {coverUrl && (
-            <button
-              type="button"
-              onClick={handleRemoveCover}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/90 hover:bg-rose-600 text-white text-[12px] font-bold shadow-sm backdrop-blur-sm transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Remove Cover
-            </button>
-          )}
-          <label
-            htmlFor="profile-cover-upload"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/70 hover:bg-slate-900 text-white text-[12px] font-bold shadow-sm backdrop-blur-sm cursor-pointer transition-colors"
-          >
-            <Camera className="w-3.5 h-3.5" /> Update Cover
-          </label>
-          <input id="profile-cover-upload" type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
-        </div>
-      </div>
-
-      <main className="max-w-[1200px] mx-auto px-5 sm:px-7 -mt-16 relative z-10 animate-in fade-in duration-500">
-        
-        {/* Floating Profile Card */}
-        <div className="bg-white/90 backdrop-blur-xl rounded-[24px] p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/80 flex flex-col md:flex-row items-start gap-6 sm:gap-8 relative mb-8">
-          
-          {/* Avatar Section */}
-          <div className="relative -mt-12 sm:-mt-16 shrink-0 z-20">
-            <div className="relative group">
-              <label
-                htmlFor="profile-avatar-upload"
-                className="relative flex h-32 w-32 sm:h-36 sm:w-36 items-center justify-center rounded-full bg-slate-100 text-4xl font-bold text-slate-400 shadow-sm overflow-hidden border-4 border-white cursor-pointer hover:scale-[1.02] transition-transform"
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={user ? `${user.firstName} ${user.lastName}` : "Avatar"} className="h-full w-full object-cover" />
-                ) : (
-                  <span className="flex items-center justify-center text-5xl tracking-tight text-[#4355CC]">{initials}</span>
-                )}
-                <div className="absolute inset-0 bg-black/40 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-sm font-semibold backdrop-blur-[2px]">
-                  <Camera className="w-6 h-6 mb-1.5" />
-                  <span>Update</span>
-                </div>
-                <input id="profile-avatar-upload" type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
-              </label>
-              
-              <label htmlFor="profile-avatar-upload" className="absolute -bottom-1 -right-1 p-2.5 rounded-full bg-[#4355CC] text-white border-4 border-white cursor-pointer hover:bg-[#3446b3] transition-colors shadow-md z-10" title="Edit profile picture">
-                <Camera className="w-4 h-4" />
-              </label>
-              
-              {avatarUrl && (
-                <button type="button" onClick={handleRemoveAvatar} className="absolute -top-1 -right-1 p-2.5 rounded-full bg-rose-500 text-white border-4 border-white cursor-pointer hover:bg-rose-600 transition-colors shadow-md z-10" title="Remove profile picture">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Details & Actions */}
-          <div className="flex-1 w-full mt-2 sm:mt-0 z-10">
-            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-              <div>
-                <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                  {user ? `${user.firstName} ${user.lastName}` : "Employee Profile"}
-                  <CheckCircle2 className="w-6 h-6 text-[#4355CC]" />
-                </h1>
-                <p className="text-[14px] text-slate-500 font-medium mt-1.5 flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-[#4355CC] text-[11px] font-bold uppercase tracking-wider">{user?.role || "Software Engineer"}</span>
-                  <span className="text-slate-400 font-bold">{user?.employeeId || "EMP-1042"}</span>
+        {/* =========================================================================
+            1. CONTAINERIZED ROUNDED COVER BANNER (Eleken / YouTube / Twitter Style)
+           ========================================================================= */}
+        <div className="relative w-full h-44 sm:h-56 md:h-64 lg:h-72 rounded-[28px] overflow-hidden bg-[#0D1117] border border-slate-200/90 dark:border-slate-800 shadow-md select-none group">
+          {coverUrl ? (
+            <>
+              <img
+                src={coverUrl}
+                alt="Profile Cover"
+                className="w-full h-full object-cover object-center transition-transform duration-700 group-hover:scale-[1.01]"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 pointer-events-none" />
+            </>
+          ) : (
+            <div className="absolute inset-0 bg-gradient-to-r from-[#0F172A] via-[#1E293B] to-[#0F172A] flex items-center justify-center p-6 text-center">
+              <div className="absolute inset-0 opacity-[0.08] bg-[radial-gradient(#94A3B8_1px,transparent_1px)] [background-size:24px_24px]" />
+              <div className="relative z-10 max-w-xl space-y-1">
+                <p className="text-sm sm:text-base font-bold text-indigo-300 tracking-wide">
+                  EmpSphere Enterprise Workspace
                 </p>
+                <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight">
+                  Helping teams build & deliver <span className="text-amber-400">with excellence</span>
+                </h2>
               </div>
             </div>
+          )}
+
+          {/* Cover Action Buttons */}
+          <div className="absolute top-3.5 right-3.5 sm:top-4 sm:right-4 flex items-center gap-2 z-20">
+            {coverUrl && (
+              <button
+                type="button"
+                disabled={updatingCover}
+                onClick={handleRemoveCover}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/80 hover:bg-rose-600 text-white text-[11.5px] font-bold shadow-md backdrop-blur-md transition-all cursor-pointer border border-white/20 active:scale-95"
+                title="Remove cover banner"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400 group-hover:text-white" />
+                <span className="hidden sm:inline">Remove</span>
+              </button>
+            )}
+
+            <label
+              htmlFor="profile-cover-upload"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/95 hover:bg-white text-slate-900 text-[11.5px] font-extrabold shadow-md backdrop-blur-md cursor-pointer transition-all border border-white/40 hover:shadow-lg active:scale-95"
+              title="Change cover photo"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+              <span>{coverUrl ? "Change Banner" : "Upload Banner"}</span>
+            </label>
+            <input
+              id="profile-cover-upload"
+              type="file"
+              accept="image/*"
+              onChange={handleCoverFileChange}
+              className="hidden"
+            />
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-slate-200">
+        {/* =========================================================================
+            2. PROFILE IDENTITY STRIP (Circular Avatar + Rich Details on Right)
+           ========================================================================= */}
+        <div className="flex flex-col md:flex-row items-center md:items-start gap-6 px-2 sm:px-4">
+          {/* Circular Avatar */}
+          <div className="relative shrink-0">
+            <div className="relative group">
+              <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-full bg-slate-900 text-white font-black flex items-center justify-center text-3xl sm:text-4xl shadow-xl overflow-hidden border-4 border-white dark:border-slate-900 ring-2 ring-slate-200/90 dark:ring-slate-800">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={user ? `${user.firstName} ${user.lastName}` : "Avatar"}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-slate-300 font-extrabold">{initials}</span>
+                )}
+              </div>
+
+              {/* Upload Avatar Overlay */}
+              <label
+                htmlFor="profile-avatar-upload"
+                className="absolute inset-0 bg-slate-950/65 text-white rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[11px] font-bold cursor-pointer backdrop-blur-xs"
+              >
+                <Camera className="w-5 h-5 mb-1" />
+                <span>Change</span>
+              </label>
+
+              {/* Camera Icon Trigger Button */}
+              <label
+                htmlFor="profile-avatar-upload"
+                className="absolute bottom-1 right-1 p-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-white dark:border-slate-900 shadow-md cursor-pointer transition-all active:scale-95"
+                title="Change profile picture"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </label>
+
+              {/* Delete Avatar Button */}
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  className="absolute top-1 right-1 p-1.5 rounded-full bg-slate-900 hover:bg-rose-600 text-white border-2 border-white dark:border-slate-900 shadow-md cursor-pointer transition-all active:scale-95"
+                  title="Remove profile picture"
+                >
+                  <Trash2 className="w-3 h-3 text-rose-400 hover:text-white" />
+                </button>
+              )}
+
+              <input
+                id="profile-avatar-upload"
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarFileChange}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          {/* Details on Right */}
+          <div className="flex-1 space-y-2.5 text-center md:text-left pt-1">
+            {/* Title & Verified Badge */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 justify-center md:justify-start">
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                {user ? `${user.firstName} ${user.lastName}` : "Employee Profile"}{" "}
+                <span className="font-extrabold text-slate-500 dark:text-slate-400 text-lg sm:text-xl font-normal">
+                  — {isAdmin ? "Enterprise Administrator" : (user?.role || "Software Engineer")}
+                </span>
+              </h1>
+              <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 inline-block" />
+            </div>
+
+            {/* Handle & Core Specs */}
+            <p className="text-[13px] font-semibold text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-center md:justify-start gap-2">
+              <span className="text-slate-800 dark:text-slate-200 font-bold">
+                @{user?.firstName?.toLowerCase() || "user"}{user?.lastName?.toLowerCase() || ""}
+              </span>
+              <span>•</span>
+              <span className="font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-slate-700 dark:text-slate-300 font-bold text-[12px]">
+                ID: {user?.employeeId || "EMP-1042"}
+              </span>
+              <span>•</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                {user?.department || "Engineering"} Department
+              </span>
+            </p>
+
+            {/* Bio / Description */}
+            <p className="text-[13.5px] text-slate-600 dark:text-slate-300 max-w-3xl leading-relaxed">
+              EmpSphere Enterprise verified staff member. Overseeing department workflows, team tasks, security compliance, and workspace productivity.
+            </p>
+
+            {/* Contact Links & Action Buttons */}
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 pt-1">
+              <span className="text-[13px] font-bold text-blue-600 dark:text-sky-400 hover:underline cursor-pointer flex items-center gap-1">
+                <Mail className="w-3.5 h-3.5 text-blue-500" />
+                {user?.email}
+              </span>
+              {user?.phoneNumber && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className="text-[13px] font-medium text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5 text-emerald-500" />
+                    {user.dialCode} {user.phoneNumber}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Subscribe / Action Pill Style Button */}
+            <div className="pt-2 flex items-center justify-center md:justify-start gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveTab("personal")}
+                className="px-5 py-2 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 text-[13px] font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-2"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+                <span>{isAdmin ? "Active System Administrator" : "Active Verified Employee"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("employment")}
+                className="px-4 py-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-[13px] font-bold transition-all cursor-pointer"
+              >
+                View HR Records
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab Navigation Controls - Generous Spacing & Soft Pill Curves */}
+        <div className="flex items-center gap-2.5 sm:gap-3 overflow-x-auto pb-2 custom-scrollbar">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -210,28 +353,27 @@ export const ProfileContent = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabId)}
-                className={`flex items-center gap-2 px-5 py-3 rounded-t-xl font-bold text-[14px] transition-colors whitespace-nowrap ${
-                  isActive 
-                    ? "bg-white text-[#4355CC] border-t-2 border-l border-r border-[#4355CC]/10 shadow-[0_-4px_10px_rgb(0,0,0,0.02)]" 
-                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl font-bold text-[13.5px] transition-all whitespace-nowrap cursor-pointer shadow-xs ${
+                  isActive
+                    ? "bg-blue-600 text-white shadow-sm border border-blue-600"
+                    : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-800"
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? "text-[#4355CC]" : "text-slate-400"}`} />
-                {tab.label}
+                <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-slate-400"}`} />
+                <span>{tab.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Tab Content */}
-        <div className="min-h-[500px]">
+        {/* Tab Content Box */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/90 dark:border-slate-800 min-h-[480px]">
           {activeTab === "personal" && <PersonalInfoTab />}
           {activeTab === "employment" && <EmploymentInfoTab />}
           {activeTab === "compliance" && <ComplianceTab />}
           {activeTab === "documents" && <DocumentsTab />}
           {activeTab === "salary" && <SalaryStructureTab />}
         </div>
-
       </main>
     </div>
   );

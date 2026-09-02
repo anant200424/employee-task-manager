@@ -1,12 +1,14 @@
 import mongoose, { Document, Model, Schema } from "mongoose";
 
 export interface ITask extends Document {
+  taskCode: string;
   title: string;
   description?: string;
   status: "todo" | "in_progress" | "review" | "completed";
   priority: "low" | "medium" | "high" | "urgent";
   dueDate?: Date;
-  assignedTo?: mongoose.Types.ObjectId;
+  assignedTo: mongoose.Types.ObjectId[];
+  createdBy?: mongoose.Types.ObjectId;
   department?: string;
   tags: string[];
   createdAt: Date;
@@ -15,6 +17,12 @@ export interface ITask extends Document {
 
 const taskSchema = new Schema<ITask>(
   {
+    taskCode: {
+      type: String,
+      required: [true, "Task code is required"],
+      trim: true,
+      index: true,
+    },
     title: {
       type: String,
       required: [true, "Task title is required"],
@@ -42,7 +50,14 @@ const taskSchema = new Schema<ITask>(
       type: Date,
       default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days from now
     },
-    assignedTo: {
+    assignedTo: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        index: true,
+      },
+    ],
+    createdBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
     },
@@ -56,9 +71,10 @@ const taskSchema = new Schema<ITask>(
       default: [],
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-const Task: Model<ITask> = mongoose.models.Task || mongoose.model<ITask>("Task", taskSchema);
+const Task: Model<ITask> =
+  mongoose.models.Task || mongoose.model<ITask>("Task", taskSchema);
 
 export default Task;

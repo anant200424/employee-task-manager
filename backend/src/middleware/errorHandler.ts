@@ -13,16 +13,18 @@ export const errorHandler = (
   req: Request,
   res: Response,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  next: NextFunction
+  _next: NextFunction,
 ): void => {
   let statusCode = err instanceof ApiError ? err.statusCode : 500;
   let message = err.message || "Internal server error";
-  let errors: Record<string, string> | undefined = err instanceof ApiError ? err.errors : undefined;
+  let errors: Record<string, string> | undefined =
+    err instanceof ApiError ? err.errors : undefined;
 
   // Mongoose duplicate key error (e.g. duplicate email)
   if ((err as unknown as { code?: number }).code === 11000) {
     statusCode = 409;
-    const keyValue = (err as unknown as { keyValue?: Record<string, string> }).keyValue || {};
+    const keyValue =
+      (err as unknown as { keyValue?: Record<string, string> }).keyValue || {};
     const field = Object.keys(keyValue)[0] || "field";
     message = `An account with this ${field} already exists.`;
     errors = { [field]: message };
@@ -32,9 +34,14 @@ export const errorHandler = (
   if (err.name === "ValidationError") {
     statusCode = 422;
     message = "Validation failed";
-    const validationErr = err as unknown as { errors: Record<string, { message: string }> };
+    const validationErr = err as unknown as {
+      errors: Record<string, { message: string }>;
+    };
     errors = Object.fromEntries(
-      Object.entries(validationErr.errors).map(([key, val]) => [key, val.message])
+      Object.entries(validationErr.errors).map(([key, val]) => [
+        key,
+        val.message,
+      ]),
     );
   }
 
@@ -45,7 +52,9 @@ export const errorHandler = (
   }
 
   if (process.env.NODE_ENV !== "production") {
-    console.error(err);
+    if (!(err instanceof ApiError) || err.statusCode >= 500) {
+      console.error(err);
+    }
   }
 
   res.status(statusCode).json({

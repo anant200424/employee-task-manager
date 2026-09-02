@@ -23,7 +23,10 @@ const config = {
 export const Alert = ({ variant = "error", message }: AlertProps) => {
   const { icon: Icon, classes } = config[variant];
   return (
-    <div className={`flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm font-medium ${classes}`} role="alert">
+    <div
+      className={`flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm font-medium ${classes}`}
+      role="alert"
+    >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{message}</span>
     </div>

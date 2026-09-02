@@ -98,6 +98,165 @@
 }
 
 /* ============================================================
+   GLOBAL SHIMMER & SKELETON ANIMATIONS
+   ============================================================ */
+@keyframes shimmerSweep {
+  0% {
+    transform: translateX(-250%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(350%) skewX(-20deg);
+  }
+}
+
+@keyframes shimmerPulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerSweep 2.5s infinite linear;
+}
+
+html.dark .shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerSweep 2.5s infinite linear;
+}
+
+/* ============================================================
+   SKELETON SHIMMER WAVE FOR REFRESH & LOADING STATES
+   ============================================================ */
+@keyframes skeletonWave {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f8fafc 40%,
+    #e2e8f0 80%
+  );
+  background-size: 200% 100%;
+  animation: skeletonWave 1.6s infinite ease-in-out;
+}
+
+html.dark .skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #1e293b 0%,
+    #334155 40%,
+    #1e293b 80%
+  );
+  background-size: 200% 100%;
+  animation: skeletonWave 1.6s infinite ease-in-out;
+}
+
+/* Continuous & Hover Card Shimmer Light Beam Effect */
+.hover-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.hover-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 30%,
+    rgba(255, 255, 255, 0.75) 50%,
+    rgba(255, 255, 255, 0.25) 70%,
+    transparent 100%
+  );
+  transform: translateX(-250%) skewX(-20deg);
+  pointer-events: none;
+  z-index: 25;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+html.dark .hover-shimmer::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 30%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.04) 70%,
+    transparent 100%
+  );
+}
+
+.hover-shimmer:hover::before {
+  opacity: 1;
+  animation: shimmerSweep 1.8s infinite linear;
+}
+
+/* Ambient Continuous Shimmer Effect (Works on all devices without hover) */
+.card-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 35%,
+    rgba(255, 255, 255, 0.75) 50%,
+    rgba(255, 255, 255, 0.3) 65%,
+    transparent 100%
+  );
+  transform: translateX(-250%) skewX(-20deg);
+  pointer-events: none;
+  z-index: 25;
+  animation: shimmerSweep 3.5s infinite ease-in-out;
+}
+
+html.dark .card-shimmer::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 35%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.03) 65%,
+    transparent 100%
+  );
+}
+
+/* ============================================================
    GLOBAL PREMIUM DARK MODE
    ============================================================ */
 html.dark {

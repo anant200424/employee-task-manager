@@ -3,14 +3,25 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, ArrowLeft } from "lucide-react";
+import {
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  ArrowLeft,
+} from "lucide-react";
 import { ResetPasswordFormData, FormErrors } from "@/types/auth";
 import { validateResetPasswordForm } from "@/lib/validation";
 import { api, extractApiError } from "@/lib/api";
 
 export const ResetPasswordForm = ({ token }: { token: string }) => {
   const router = useRouter();
-  const [data, setData] = useState<ResetPasswordFormData>({ password: "", confirmPassword: "" });
+  const [data, setData] = useState<ResetPasswordFormData>({
+    password: "",
+    confirmPassword: "",
+  });
   const [errors, setErrors] = useState<FormErrors<ResetPasswordFormData>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -49,7 +60,8 @@ export const ResetPasswordForm = ({ token }: { token: string }) => {
           Password reset!
         </h2>
         <p className="mt-2 text-[14px] text-slate-600">
-          Your password has been successfully updated. Redirecting you to sign in...
+          Your password has been successfully updated. Redirecting you to sign
+          in...
         </p>
       </div>
     );
@@ -88,7 +100,8 @@ export const ResetPasswordForm = ({ token }: { token: string }) => {
               value={data.password}
               onChange={(e) => {
                 setData((p) => ({ ...p, password: e.target.value }));
-                if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+                if (errors.password)
+                  setErrors((p) => ({ ...p, password: undefined }));
               }}
               placeholder="Create a new password"
               className={`w-full rounded-xl border ${
@@ -104,7 +117,11 @@ export const ResetPasswordForm = ({ token }: { token: string }) => {
               className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
               tabIndex={-1}
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
             </button>
           </div>
           {errors.password && (
@@ -128,7 +145,8 @@ export const ResetPasswordForm = ({ token }: { token: string }) => {
               value={data.confirmPassword}
               onChange={(e) => {
                 setData((p) => ({ ...p, confirmPassword: e.target.value }));
-                if (errors.confirmPassword) setErrors((p) => ({ ...p, confirmPassword: undefined }));
+                if (errors.confirmPassword)
+                  setErrors((p) => ({ ...p, confirmPassword: undefined }));
               }}
               placeholder="Re-enter your new password"
               className={`w-full rounded-xl border ${
@@ -144,7 +162,11 @@ export const ResetPasswordForm = ({ token }: { token: string }) => {
               className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
               tabIndex={-1}
             >
-              {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showConfirmPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
             </button>
           </div>
           {errors.confirmPassword && (

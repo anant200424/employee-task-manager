@@ -2,15 +2,22 @@ import { Router, Response, NextFunction } from "express";
 import Message from "../models/Message";
 import User from "../models/User";
 import Notification from "../models/Notification";
-import { protect } from "../middleware/auth";
+import { protect, restrictTo } from "../middleware/auth";
 import { AuthRequest } from "../middleware/auth";
 import { ApiError } from "../utils/ApiError";
 import { sendSuccess } from "../utils/ApiResponse";
-import mongoose from "mongoose";
+import { sendEmailToUsers } from "../controllers/userController";
+import { recordAuditLog } from "../services/auditService";
+import { emitWorkspaceMessage, emitNewNotification } from "../services/socketService";
 
 const router = Router();
 
 router.use(protect);
+
+// @route  POST /api/messages/send-email
+// @desc   Admin sends direct email to specific employee(s) via SMTP
+router.post("/send-email", restrictTo("admin", "super_admin", "system_admin"), sendEmailToUsers);
+
 
 // @route  GET /api/messages
 // @desc   Get all workspace messages (announcements & discussions)
@@ -41,17 +48,34 @@ router.post("/", async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const messageType = type === "announcement" ? "announcement" : "discussion";
 
+    const rawRole = (user.role || "").toLowerCase();
+    const isPrivileged =
+      ["admin", "super_admin", "system_admin"].includes(user.systemRole || "") ||
+      rawRole === "admin" ||
+      rawRole === "super administrator" ||
+      rawRole === "system administrator";
+
     // Restrict announcements to administrators only
-    if (messageType === "announcement" && user.role !== "admin") {
+    if (messageType === "announcement" && !isPrivileged) {
       throw new ApiError(403, "Only administrators are allowed to post announcements.");
     }
 
     const message = await Message.create({
       senderName: `${user.firstName} ${user.lastName}`,
-      senderRole: user.role,
+      senderRole: user.systemRole === "super_admin" ? "Super Administrator" : user.role,
       content: String(content).trim(),
       type: messageType,
     });
+
+    if (messageType === "announcement") {
+      recordAuditLog({
+        req,
+        action: "COMPANY_ANNOUNCEMENT_BROADCAST",
+        resourceType: "team",
+        resourceId: message._id.toString(),
+        details: { snippet: String(content).trim().substring(0, 100) },
+      });
+    }
 
     // Automatically notify all other active employees/users
     const otherUsers = await User.find({ _id: { $ne: user._id } }).select("_id");
@@ -78,7 +102,10 @@ router.post("/", async (req: AuthRequest, res: Response, next: NextFunction) => 
       }));
 
       await Notification.insertMany(notifs);
+      notifs.forEach((n) => emitNewNotification(n.recipient.toString(), n));
     }
+
+    emitWorkspaceMessage(message);
 
     sendSuccess(res, 201, "Message posted successfully.", { message });
   } catch (error) {

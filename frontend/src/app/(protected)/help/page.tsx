@@ -12,8 +12,9 @@ import {
   MessageSquare,
   ChevronDown,
   Mail,
-  Phone,
-  FileText
+  FileText,
+  Compass,
+  Keyboard,
 } from "lucide-react";
 
 const faqs = [
@@ -53,12 +54,11 @@ export default function HelpCenterPage() {
   );
 
   return (
-    <div className="flex h-screen bg-[#F4F8FB] dark:bg-[#0B1120] overflow-hidden transition-colors duration-300">
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <Topbar title={t("help", "Help & Support")} subtitle="Find answers, guides, and support resources." />
-        
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-10 relative z-10">
-          <div className="max-w-5xl mx-auto space-y-10">
+    <div className="min-h-screen bg-transparent pb-16 transition-colors duration-300">
+      <Topbar title={t("help", "Help & Support")} subtitle="Find answers, guides, and support resources." />
+      
+      <main className="p-6 lg:p-10 relative z-10">
+        <div className="max-w-5xl mx-auto space-y-10">
             
             {/* Search Header */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 lg:p-12 shadow-sm border border-slate-200/50 dark:border-slate-800 text-center relative overflow-hidden group">
@@ -70,7 +70,7 @@ export default function HelpCenterPage() {
                   How can we help you today?
                 </h2>
                 <p className="text-slate-500 dark:text-slate-400 text-[15px] font-medium mb-8 max-w-2xl mx-auto">
-                  Search through our comprehensive guides, FAQs, and documentation to find exactly what you're looking for.
+                  Search through our comprehensive guides, FAQs, and documentation to find exactly what you&apos;re looking for.
                 </p>
                 
                 <div className="max-w-2xl mx-auto relative">
@@ -119,6 +119,35 @@ export default function HelpCenterPage() {
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+
+                {/* Quick Interactive Tools Card */}
+                <div className="glass-card rounded-3xl p-6 border border-indigo-100 dark:border-slate-800 space-y-3">
+                  <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Compass className="w-4 h-4 text-[#5B5FEF]" />
+                    Interactive Guides & Tools
+                  </h3>
+                  <p className="text-slate-500 dark:text-slate-400 text-[12.5px] font-medium leading-relaxed">
+                    Relaunch the interactive guided onboarding or view the keyboard navigation cheat sheet.
+                  </p>
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new Event("nexus-start-tour"))}
+                      className="w-full py-2.5 px-4 bg-[#5B5FEF] hover:bg-[#4A4EDC] text-white rounded-xl text-[13px] font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+                    >
+                      <Compass className="w-4 h-4" />
+                      <span>Start Guided Tour</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new Event("nexus-open-shortcuts"))}
+                      className="w-full py-2.5 px-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-[13px] font-bold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer"
+                    >
+                      <Keyboard className="w-4 h-4 text-slate-400" />
+                      <span>Keyboard Shortcuts (?)</span>
+                    </button>
                   </div>
                 </div>
 
@@ -189,7 +218,7 @@ export default function HelpCenterPage() {
                       ))
                     ) : (
                       <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                        <p className="text-slate-500 dark:text-slate-400 font-medium">No articles found for "{searchQuery}"</p>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium">No articles found for &quot;{searchQuery}&quot;</p>
                         <button onClick={() => setSearchQuery("")} className="mt-2 text-[#5B5FEF] hover:underline font-bold text-[13px] cursor-pointer">Clear search</button>
                       </div>
                     )}
@@ -199,8 +228,7 @@ export default function HelpCenterPage() {
 
             </div>
           </div>
-        </div>
-      </main>
-    </div>
-  );
-}
+        </main>
+      </div>
+    );
+  }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { IndianRupee, CheckCircle2, AlertCircle, Edit2, X, FileText } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { api, extractApiError } from "@/lib/api";
+import { validateSalaryField } from "@/lib/validation";
 
 export const SalaryStructureTab = () => {
   const { user, setUser } = useAuth();
@@ -14,32 +15,93 @@ export const SalaryStructureTab = () => {
   const [allowances, setAllowances] = useState(user?.salary?.allowances?.toString() || "0");
   const [pf, setPf] = useState(user?.salary?.pf?.toString() || "0");
   
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Auto-calculate CTC
-  const totalCTC = parseInt(basic || "0") + parseInt(hra || "0") + parseInt(allowances || "0") + parseInt(pf || "0");
+  const numBasic = Math.max(0, parseInt(basic || "0") || 0);
+  const numHra = Math.max(0, parseInt(hra || "0") || 0);
+  const numAllowances = Math.max(0, parseInt(allowances || "0") || 0);
+  const numPf = Math.max(0, parseInt(pf || "0") || 0);
+  const totalCTC = numBasic + numHra + numAllowances + numPf;
+
+  const validateField = (name: string, value: string): string | undefined => {
+    switch (name) {
+      case "basic":
+        return validateSalaryField(value, "Basic Salary");
+      case "hra":
+        return validateSalaryField(value, "HRA");
+      case "allowances":
+        return validateSalaryField(value, "Special Allowances");
+      case "pf":
+        return validateSalaryField(value, "Provident Fund (PF)");
+      default:
+        return undefined;
+    }
+  };
+
+  const handleBlur = (name: string) => {
+    let val = "";
+    if (name === "basic") val = basic;
+    else if (name === "hra") val = hra;
+    else if (name === "allowances") val = allowances;
+    else if (name === "pf") val = pf;
+
+    const err = validateField(name, val);
+    setFormErrors((prev) => ({
+      ...prev,
+      [name]: err || "",
+    }));
+  };
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+
+    const bErr = validateField("basic", basic);
+    if (bErr) errs.basic = bErr;
+
+    const hErr = validateField("hra", hra);
+    if (hErr) errs.hra = hErr;
+
+    const aErr = validateField("allowances", allowances);
+    if (aErr) errs.allowances = aErr;
+
+    const pErr = validateField("pf", pf);
+    if (pErr) errs.pf = pErr;
+
+    setFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(null);
+
+    if (!validate()) {
+      setMsg({ type: "error", text: "Please fix the salary validation errors before saving." });
+      return;
+    }
+
     setSaving(true);
     
     try {
       const res = await api.patch("/users/me", {
         salary: {
-          basic: parseInt(basic || "0"),
-          hra: parseInt(hra || "0"),
-          allowances: parseInt(allowances || "0"),
-          pf: parseInt(pf || "0"),
+          basic: numBasic,
+          hra: numHra,
+          allowances: numAllowances,
+          pf: numPf,
           totalCTC
         }
       });
       setUser(res.data.data.user);
       setMsg({ type: "success", text: "Salary structure updated successfully." });
       setIsEditing(false);
+      setFormErrors({});
     } catch (err) {
-      const { message } = extractApiError(err);
+      const { message, errors } = extractApiError(err);
+      if (errors) setFormErrors((prev) => ({ ...prev, ...errors }));
       setMsg({ type: "error", text: message });
     } finally {
       setSaving(false);
@@ -89,6 +151,7 @@ export const SalaryStructureTab = () => {
                 setHra(user?.salary?.hra?.toString() || "0");
                 setAllowances(user?.salary?.allowances?.toString() || "0");
                 setPf(user?.salary?.pf?.toString() || "0");
+                setFormErrors({});
               }}
               className="px-4 py-2 rounded-xl bg-white text-slate-600 font-bold text-[13px] hover:bg-slate-50 border border-slate-200 shadow-sm transition-all flex items-center gap-2"
             >
@@ -160,22 +223,114 @@ export const SalaryStructureTab = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Basic Salary (₹)</label>
-              <input type="number" value={basic} onChange={(e) => setBasic(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <input
+                type="number"
+                min="0"
+                value={basic}
+                onChange={(e) => {
+                  setBasic(e.target.value);
+                  if (formErrors.basic) {
+                    const liveErr = validateField("basic", e.target.value);
+                    setFormErrors((prev) => ({ ...prev, basic: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("basic")}
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono text-slate-800 outline-none transition-all ${
+                  formErrors.basic
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                }`}
+              />
+              {formErrors.basic && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.basic}</span>
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5">HRA (₹)</label>
-              <input type="number" value={hra} onChange={(e) => setHra(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <input
+                type="number"
+                min="0"
+                value={hra}
+                onChange={(e) => {
+                  setHra(e.target.value);
+                  if (formErrors.hra) {
+                    const liveErr = validateField("hra", e.target.value);
+                    setFormErrors((prev) => ({ ...prev, hra: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("hra")}
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono text-slate-800 outline-none transition-all ${
+                  formErrors.hra
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                }`}
+              />
+              {formErrors.hra && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.hra}</span>
+                </p>
+              )}
             </div>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Special Allowances (₹)</label>
-              <input type="number" value={allowances} onChange={(e) => setAllowances(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <input
+                type="number"
+                min="0"
+                value={allowances}
+                onChange={(e) => {
+                  setAllowances(e.target.value);
+                  if (formErrors.allowances) {
+                    const liveErr = validateField("allowances", e.target.value);
+                    setFormErrors((prev) => ({ ...prev, allowances: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("allowances")}
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono text-slate-800 outline-none transition-all ${
+                  formErrors.allowances
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                }`}
+              />
+              {formErrors.allowances && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.allowances}</span>
+                </p>
+              )}
             </div>
             <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Provident Fund (₹)</label>
-              <input type="number" value={pf} onChange={(e) => setPf(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Provident Fund (PF) (₹)</label>
+              <input
+                type="number"
+                min="0"
+                value={pf}
+                onChange={(e) => {
+                  setPf(e.target.value);
+                  if (formErrors.pf) {
+                    const liveErr = validateField("pf", e.target.value);
+                    setFormErrors((prev) => ({ ...prev, pf: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("pf")}
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono text-slate-800 outline-none transition-all ${
+                  formErrors.pf
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                }`}
+              />
+              {formErrors.pf && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.pf}</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -189,3 +344,4 @@ export const SalaryStructureTab = () => {
     </form>
   );
 };
+

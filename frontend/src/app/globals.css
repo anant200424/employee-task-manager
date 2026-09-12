@@ -5,11 +5,80 @@
 @layer base {
   :root {
     color-scheme: light;
+
+    /* Dynamic Theme Accent System - Indigo Default */
+    --accent-color: #5B5FEF;
+    --accent-hover: #4A4EDC;
+    --accent-subtle: rgba(91, 95, 239, 0.12);
+    --accent-subtle-hover: rgba(91, 95, 239, 0.18);
+    --accent-glow: rgba(91, 95, 239, 0.28);
+    --accent-ring: rgba(91, 95, 239, 0.35);
+    --accent-gradient: linear-gradient(135deg, #5B5FEF 0%, #7C3AED 100%);
+    --accent-text: #5B5FEF;
+  }
+
+  [data-accent="indigo"] {
+    --accent-color: #5B5FEF;
+    --accent-hover: #4A4EDC;
+    --accent-subtle: rgba(91, 95, 239, 0.12);
+    --accent-subtle-hover: rgba(91, 95, 239, 0.18);
+    --accent-glow: rgba(91, 95, 239, 0.28);
+    --accent-ring: rgba(91, 95, 239, 0.35);
+    --accent-gradient: linear-gradient(135deg, #5B5FEF 0%, #7C3AED 100%);
+    --accent-text: #5B5FEF;
+  }
+
+  [data-accent="sky-blue"],
+  [data-accent="sky blue"] {
+    --accent-color: #0EA5E9;
+    --accent-hover: #0284C7;
+    --accent-subtle: rgba(14, 165, 233, 0.12);
+    --accent-subtle-hover: rgba(14, 165, 233, 0.18);
+    --accent-glow: rgba(14, 165, 233, 0.28);
+    --accent-ring: rgba(14, 165, 233, 0.35);
+    --accent-gradient: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
+    --accent-text: #0EA5E9;
+  }
+
+  [data-accent="emerald"] {
+    --accent-color: #10B981;
+    --accent-hover: #059669;
+    --accent-subtle: rgba(16, 185, 129, 0.12);
+    --accent-subtle-hover: rgba(16, 185, 129, 0.18);
+    --accent-glow: rgba(16, 185, 129, 0.28);
+    --accent-ring: rgba(16, 185, 129, 0.35);
+    --accent-gradient: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    --accent-text: #10B981;
+  }
+
+  [data-accent="purple"] {
+    --accent-color: #8B5CF6;
+    --accent-hover: #7C3AED;
+    --accent-subtle: rgba(139, 92, 246, 0.12);
+    --accent-subtle-hover: rgba(139, 92, 246, 0.18);
+    --accent-glow: rgba(139, 92, 246, 0.28);
+    --accent-ring: rgba(139, 92, 246, 0.35);
+    --accent-gradient: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%);
+    --accent-text: #8B5CF6;
+  }
+
+  [data-accent="rose"] {
+    --accent-color: #F43F5E;
+    --accent-hover: #E11D48;
+    --accent-subtle: rgba(244, 63, 94, 0.12);
+    --accent-subtle-hover: rgba(244, 63, 94, 0.18);
+    --accent-glow: rgba(244, 63, 94, 0.28);
+    --accent-ring: rgba(244, 63, 94, 0.35);
+    --accent-gradient: linear-gradient(135deg, #F43F5E 0%, #BE123C 100%);
+    --accent-text: #F43F5E;
   }
 
   html,
   body {
-    height: 100%;
+    width: 100%;
+    max-width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
   }
 
   body {
@@ -26,6 +95,82 @@
   *::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* ============================================================
+   INTERFACE DENSITY (COMPACT VS COMFORTABLE)
+   ============================================================ */
+[data-density="compact"] body {
+  font-size: 13.5px;
+}
+
+[data-density="compact"] table th,
+[data-density="compact"] table td {
+  padding-top: 0.45rem !important;
+  padding-bottom: 0.45rem !important;
+  padding-left: 0.65rem !important;
+  padding-right: 0.65rem !important;
+  font-size: 12.5px !important;
+}
+
+[data-density="compact"] .p-6,
+[data-density="compact"] .p-7 {
+  padding: 1.15rem !important;
+}
+
+[data-density="compact"] .p-5 {
+  padding: 0.95rem !important;
+}
+
+[data-density="compact"] .py-3 {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+
+[data-density="compact"] .gap-4 {
+  gap: 0.75rem !important;
+}
+
+[data-density="compact"] .gap-6 {
+  gap: 1rem !important;
+}
+
+/* ============================================================
+   GLOBAL DYNAMIC ACCENT OVERRIDES
+   ============================================================ */
+[data-accent] .bg-\[\#5B5FEF\],
+[data-accent] .bg-brand-600,
+[data-accent] .bg-brand-700 {
+  background-color: var(--accent-color) !important;
+}
+
+[data-accent] .hover\:bg-\[\#4A4EDC\]:hover,
+[data-accent] .hover\:bg-brand-700:hover,
+[data-accent] .hover\:bg-brand-800:hover {
+  background-color: var(--accent-hover) !important;
+}
+
+[data-accent] .text-\[\#5B5FEF\],
+[data-accent] .text-brand-600 {
+  color: var(--accent-color) !important;
+}
+
+[data-accent] .border-\[\#5B5FEF\],
+[data-accent] .border-brand-600 {
+  border-color: var(--accent-color) !important;
+}
+
+[data-accent] .shadow-\[\#5B5FEF\]\/25 {
+  box-shadow: 0 4px 14px var(--accent-glow) !important;
+}
+
+[data-accent] .ring-\[\#5B5FEF\]\/20:focus,
+[data-accent] .focus\:ring-\[\#5B5FEF\]\/20:focus {
+  --tw-ring-color: var(--accent-ring) !important;
+}
+
+[data-accent] [role="switch"][aria-checked="true"] {
+  background-color: var(--accent-color) !important;
 }
 
 /* Visible keyboard focus ring across the app — accessibility floor */
@@ -257,33 +402,87 @@ html.dark .card-shimmer::before {
 }
 
 /* ============================================================
-   GLOBAL PREMIUM DARK MODE
+   GLOBAL PROFESSIONAL ENTERPRISE DARK MODE
+   Linear / GitHub / Vercel Grade Obsidian-Carbon Palette
    ============================================================ */
 html.dark {
   color-scheme: dark;
+  --bg-canvas: #090D16;
+  --bg-surface: #101623;
+  --bg-surface-elevated: #151D2E;
+  --bg-surface-hover: #182236;
+  --border-subtle: #1C2638;
+  --border-strong: #2A364F;
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
 }
 
 html.dark body {
-  background-color: #0F172A;
-  color: #F8FAFC;
-}
-
-html.dark .bg-white,
-html.dark .bg-white\/60,
-html.dark .bg-white\/80 {
-  background-color: #1E293B !important;
+  background-color: #090D16 !important;
   color: #F8FAFC !important;
 }
 
+/* Base Canvas Backgrounds */
+html.dark .bg-\[\#FAFBFC\],
+html.dark .bg-\[\#F4F6FA\],
+html.dark .bg-\[\#F8FAFC\],
+html.dark .bg-\[\#0B0F17\],
+html.dark .dark\:bg-\[\#0B0F17\] {
+  background-color: #090D16 !important;
+}
+
+/* Primary Elevated Surface Panels (Cards, Tables, Modals) */
+html.dark .bg-white,
+html.dark .bg-white\/60,
+html.dark .bg-white\/80,
+html.dark .dark\:bg-slate-900,
+html.dark .bg-slate-900 {
+  background-color: #101623 !important;
+  color: #F8FAFC !important;
+}
+
+/* Secondary Elevated Surface (Table headers, toolbars, inner cards) */
+html.dark .dark\:bg-slate-800,
+html.dark .dark\:bg-slate-800\/80,
+html.dark .dark\:bg-slate-800\/90,
+html.dark .dark\:bg-slate-850,
+html.dark .bg-\[\#F4F5F7\],
+html.dark .bg-slate-50,
+html.dark .bg-slate-100 {
+  background-color: #151D2E !important;
+}
+
+/* Alternate Row Backgrounds in Tables */
+html.dark .dark\:bg-\[\#131B2A\],
+html.dark .dark\:bg-\[\#0E1422\],
+html.dark .dark\:bg-\[\#0D121D\],
+html.dark .dark\:bg-\[\#0E131F\] {
+  background-color: #0D121D !important;
+}
+
+/* High Definition Crisp Borders */
 html.dark .border-slate-100, 
 html.dark .border-slate-200,
+html.dark .border-slate-200\/90,
+html.dark .border-slate-200\/85,
+html.dark .border-slate-200\/80,
+html.dark .border-slate-200\/70,
 html.dark .border-slate-200\/30,
 html.dark .border-slate-100\/50,
 html.dark .border-ink-100,
-html.dark .border-slate-300 {
-  border-color: #334155 !important;
+html.dark .border-slate-300,
+html.dark .dark\:border-slate-800,
+html.dark .dark\:border-slate-800\/90,
+html.dark .dark\:border-slate-800\/80,
+html.dark .dark\:border-slate-800\/60,
+html.dark .dark\:border-slate-700,
+html.dark .dark\:border-slate-700\/90,
+html.dark .dark\:border-slate-700\/80 {
+  border-color: #1C2638 !important;
 }
 
+/* Typography Hierarchy */
 html.dark .text-slate-900,
 html.dark .text-slate-800,
 html.dark .text-ink-900,
@@ -295,40 +494,171 @@ html.dark h5 {
   color: #F8FAFC !important;
 }
 
+html.dark .text-slate-700,
+html.dark .dark\:text-slate-200,
+html.dark .dark\:text-slate-300 {
+  color: #E2E8F0 !important;
+}
+
 html.dark .text-slate-500,
 html.dark .text-slate-600,
-html.dark .text-slate-400 {
+html.dark .dark\:text-slate-400 {
   color: #94A3B8 !important;
 }
 
-html.dark .bg-slate-50,
-html.dark .bg-slate-100,
-html.dark .bg-slate-50\/50 {
-  background-color: #0F172A !important;
+html.dark .text-slate-400 {
+  color: #64748B !important;
 }
 
-html.dark input, 
-html.dark select,
+/* Form Inputs & Textareas */
+html.dark input:not([type="checkbox"]):not([type="radio"]), 
 html.dark textarea {
-  background-color: #0F172A !important;
+  background-color: #0D121D !important;
   color: #F8FAFC !important;
-  border-color: #334155 !important;
+  border-color: #1F2A3E !important;
 }
 
-html.dark header,
-html.dark aside,
-html.dark .bg-[#F4F8FB]\/90 {
-  background-color: #1E293B !important;
-  border-color: #334155 !important;
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748B !important;
 }
 
+html.dark input:focus,
+html.dark textarea:focus {
+  border-color: #5B5FEF !important;
+  box-shadow: 0 0 0 3px rgba(91, 95, 239, 0.22) !important;
+}
+
+/* Standard Select Elements (Excludes Status Pills) */
+html.dark select:not(.status-pill):not([class*="status-pill"]):not([class*="rounded-\[5px\]"]) {
+  background-color: #0D121D !important;
+  color: #F8FAFC !important;
+  border-color: #1F2A3E !important;
+}
+
+html.dark select option {
+  background-color: #101623 !important;
+  color: #F8FAFC !important;
+}
+
+/* Jira Status Pills in Dark Mode */
+html.dark .status-pill-todo {
+  background-color: #182030 !important;
+  color: #CBD5E1 !important;
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+html.dark .status-pill-in_progress {
+  background-color: rgba(14, 116, 144, 0.25) !important;
+  color: #38BDF8 !important;
+  border-color: rgba(56, 189, 248, 0.45) !important;
+}
+
+html.dark .status-pill-review {
+  background-color: rgba(126, 34, 206, 0.25) !important;
+  color: #C084FC !important;
+  border-color: rgba(192, 132, 252, 0.45) !important;
+}
+
+html.dark .status-pill-completed {
+  background-color: rgba(16, 185, 129, 0.22) !important;
+  color: #34D399 !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+}
+
+/* Sidebar Navigation */
+html.dark aside {
+  background-color: #0B0F18 !important;
+  border-color: #1A2234 !important;
+}
+
+/* Topbar Header with Frosted Glass */
+.glass-header {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
+}
+
+html.dark .glass-header,
+html.dark header.glass-header {
+  background-color: rgba(11, 15, 24, 0.85) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border-bottom: 1px solid #1A2234 !important;
+}
+
+/* Micro-interaction Hover States */
 html.dark .hover\:bg-slate-50:hover,
 html.dark .hover\:bg-slate-100:hover,
-html.dark .hover\:bg-slate-100\/80:hover {
-  background-color: #334155 !important;
+html.dark .hover\:bg-slate-100\/80:hover,
+html.dark .dark\:hover\:bg-slate-800:hover,
+html.dark .dark\:hover\:bg-slate-800\/80:hover {
+  background-color: #182236 !important;
   color: #F8FAFC !important;
 }
 
-html.dark .text-slate-700 {
-  color: #CBD5E1 !important;
+html.dark tbody tr:hover,
+html.dark tbody tr.group:hover {
+  background-color: #161F32 !important;
 }
+
+/* Frosted Glass Elements */
+.glass-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+}
+
+html.dark .glass-card {
+  background: rgba(16, 22, 35, 0.78) !important;
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.glass-modal {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.25);
+}
+
+html.dark .glass-modal {
+  background: rgba(16, 22, 35, 0.94) !important;
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8);
+}
+
+.glass-pill {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+html.dark .glass-pill {
+  background: rgba(21, 29, 46, 0.6) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* =========================================================================
+   Tasks Workspace Fullscreen Zen View Modes
+   ========================================================================= */
+body.tasks-fullscreen {
+  overflow: hidden !important;
+}
+
+body.tasks-fullscreen aside {
+  display: none !important;
+}
+
+

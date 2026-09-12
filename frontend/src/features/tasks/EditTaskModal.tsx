@@ -1,10 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Loader2, Users, Check, Calendar, Tag, Building2, Flag, Trash2 } from "lucide-react";
+import { X, Loader2, Check, Calendar, Tag, Building2, Flag, Trash2, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "react-hot-toast";
 import { Task, AssignedUser } from "@/types/auth";
+import {
+  validateTaskTitle,
+  validateTaskDescription,
+  validateTaskDueDate,
+  validateDepartment,
+  validateAssignees,
+} from "@/lib/validation";
+import { useAuth } from "@/context/AuthContext";
 
 interface EditTaskModalProps {
   task: Task | null;
@@ -21,12 +29,14 @@ export const EditTaskModal = ({
   onSuccess,
   onDelete,
 }: EditTaskModalProps) => {
+  const { user: currentUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [employees, setEmployees] = useState<AssignedUser[]>([]);
   const [fetchingEmployees, setFetchingEmployees] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState({
     title: "",
@@ -60,6 +70,7 @@ export const EditTaskModal = ({
         tags: Array.isArray(task.tags) ? task.tags.join(", ") : "",
       });
 
+      setErrors({});
       fetchEmployees();
     }
   }, [isOpen, task]);
@@ -80,29 +91,108 @@ export const EditTaskModal = ({
 
   if (!isOpen || !task) return null;
 
+  const validateField = (name: string, value: any): string | undefined => {
+    switch (name) {
+      case "title":
+        return validateTaskTitle(value);
+      case "description":
+        return validateTaskDescription(value);
+      case "department":
+        return validateDepartment(value);
+      case "dueDate":
+        return validateTaskDueDate(value);
+      case "assignedTo":
+        return validateAssignees(value);
+      default:
+        return undefined;
+    }
+  };
+
+  const handleBlur = (name: string) => {
+    let val: any = formData[name as keyof typeof formData];
+    if (name === "assignedTo") val = selectedAssignees;
+    const error = validateField(name, val);
+    setErrors((prev) => ({
+      ...prev,
+      [name]: error || "",
+    }));
+  };
+
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
   ) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (errors[name]) {
+      const liveErr = validateField(name, value);
+      setErrors((prev) => ({ ...prev, [name]: liveErr || "" }));
+    }
   };
 
   const toggleAssignee = (userId: string) => {
-    setSelectedAssignees((prev) =>
-      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+    setSelectedAssignees((prev) => {
+      const next = prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId];
+      if (errors.assignedTo) {
+        const assignErr = validateAssignees(next);
+        setErrors((p) => ({ ...p, assignedTo: assignErr || "" }));
+      }
+      return next;
+    });
+  };
+
+  const isCallerSuperAdmin =
+    currentUser?.systemRole === "super_admin" ||
+    currentUser?.role?.toLowerCase() === "superadmin" ||
+    currentUser?.role?.toLowerCase() === "super_admin";
+
+  const isTargetAdminOrSuperAdmin = (emp: AssignedUser) => {
+    const sRole = emp.systemRole?.toLowerCase() || "";
+    const role = emp.role?.toLowerCase() || "";
+    return (
+      sRole === "super_admin" ||
+      sRole === "admin" ||
+      sRole === "system_admin" ||
+      role.includes("admin") ||
+      role.includes("superadmin")
     );
   };
 
   const filteredEmployees = employees.filter((emp) => {
+    if (!isCallerSuperAdmin && isTargetAdminOrSuperAdmin(emp)) {
+      return false;
+    }
     const fullName = `${emp.firstName} ${emp.lastName}`.toLowerCase();
     const email = emp.email.toLowerCase();
     const query = employeeSearch.toLowerCase();
     return fullName.includes(query) || email.includes(query);
   });
 
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+
+    const titleErr = validateField("title", formData.title);
+    if (titleErr) errs.title = titleErr;
+
+    const descErr = validateField("description", formData.description);
+    if (descErr) errs.description = descErr;
+
+    const deptErr = validateField("department", formData.department);
+    if (deptErr) errs.department = deptErr;
+
+    const dateErr = validateField("dueDate", formData.dueDate);
+    if (dateErr) errs.dueDate = dateErr;
+
+    const assignErr = validateField("assignedTo", selectedAssignees);
+    if (assignErr) errs.assignedTo = assignErr;
+
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim()) {
-      toast.error("Task title is required");
+    if (!validate()) {
+      toast.error("Please resolve the required form fields before saving.");
       return;
     }
 
@@ -110,6 +200,9 @@ export const EditTaskModal = ({
       setLoading(true);
       await api.patch(`/tasks/${task._id}`, {
         ...formData,
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        department: formData.department.trim(),
         assignedTo: selectedAssignees,
       });
       toast.success("Task updated successfully!");
@@ -140,7 +233,7 @@ export const EditTaskModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden border border-slate-200 dark:border-slate-800 my-8 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-800/30">
@@ -177,10 +270,20 @@ export const EditTaskModal = ({
               name="title"
               value={formData.title}
               onChange={handleChange}
+              onBlur={() => handleBlur("title")}
               placeholder="Task title"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-[14px] font-semibold focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF] transition-all outline-none"
-              required
+              className={`w-full px-4 py-2.5 rounded-xl text-slate-900 dark:text-white text-[14px] font-semibold outline-none transition-all ${
+                errors.title
+                  ? "bg-red-50/40 dark:bg-red-950/20 border border-red-500/80 focus:border-red-500 ring-1 ring-red-500/20"
+                  : "bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF]"
+              }`}
             />
+            {errors.title && (
+              <p className="text-[11.5px] font-bold text-red-500 dark:text-red-400 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{errors.title}</span>
+              </p>
+            )}
           </div>
 
           {/* Description */}
@@ -192,17 +295,28 @@ export const EditTaskModal = ({
               name="description"
               value={formData.description}
               onChange={handleChange}
+              onBlur={() => handleBlur("description")}
               placeholder="Add details about this task..."
               rows={2}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-[13.5px] font-medium focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF] transition-all outline-none resize-none"
+              className={`w-full px-4 py-2.5 rounded-xl text-slate-900 dark:text-white text-[13.5px] font-medium outline-none resize-none transition-all ${
+                errors.description
+                  ? "bg-red-50/40 dark:bg-red-950/20 border border-red-500/80 focus:border-red-500 ring-1 ring-red-500/20"
+                  : "bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF]"
+              }`}
             />
+            {errors.description && (
+              <p className="text-[11.5px] font-bold text-red-500 dark:text-red-400 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{errors.description}</span>
+              </p>
+            )}
           </div>
 
           {/* Assign Employees */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-[13px] font-bold text-slate-700 dark:text-slate-300">
-                Assigned Employees <span className="text-slate-400 font-medium">({selectedAssignees.length} selected)</span>
+                Assigned Employees <span className="text-red-500">*</span> <span className="text-slate-400 font-medium">({selectedAssignees.length} selected)</span>
               </label>
               {selectedAssignees.length > 0 && (
                 <button
@@ -223,7 +337,11 @@ export const EditTaskModal = ({
               className="w-full px-3.5 py-2 mb-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-[13px] font-medium text-slate-900 dark:text-white focus:border-[#5B5FEF] focus:outline-none"
             />
 
-            <div className="max-h-32 overflow-y-auto custom-scrollbar border border-slate-200 dark:border-slate-700 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 bg-slate-50/50 dark:bg-slate-800/20 p-1">
+            <div className={`max-h-32 overflow-y-auto custom-scrollbar rounded-xl divide-y divide-slate-100 dark:divide-slate-800 p-1 transition-all ${
+              errors.assignedTo
+                ? "bg-red-50/20 dark:bg-red-950/10 border border-red-500/80"
+                : "bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-700"
+            }`}>
               {fetchingEmployees ? (
                 <div className="p-3 text-center text-[12px] text-slate-400">Loading employees...</div>
               ) : filteredEmployees.length === 0 ? (
@@ -273,6 +391,12 @@ export const EditTaskModal = ({
                 })
               )}
             </div>
+            {errors.assignedTo && (
+              <p className="text-[11.5px] font-bold text-red-500 dark:text-red-400 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{errors.assignedTo}</span>
+              </p>
+            )}
           </div>
 
           {/* Priority & Status */}
@@ -322,20 +446,42 @@ export const EditTaskModal = ({
                 name="dueDate"
                 value={formData.dueDate}
                 onChange={handleChange}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-[13.5px] font-semibold focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF] transition-all outline-none"
+                onBlur={() => handleBlur("dueDate")}
+                className={`w-full px-3.5 py-2.5 rounded-xl text-slate-900 dark:text-white text-[13.5px] font-semibold outline-none transition-all ${
+                  errors.dueDate
+                    ? "bg-red-50/40 dark:bg-red-950/20 border border-red-500/80 focus:border-red-500 ring-1 ring-red-500/20"
+                    : "bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF]"
+                }`}
               />
+              {errors.dueDate && (
+                <p className="text-[11.5px] font-bold text-red-500 dark:text-red-400 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{errors.dueDate}</span>
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-[13px] font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
-                <Building2 className="w-3.5 h-3.5 text-[#5B5FEF]" /> Department
+                <Building2 className="w-3.5 h-3.5 text-[#5B5FEF]" /> Department <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 name="department"
                 value={formData.department}
                 onChange={handleChange}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-[13.5px] font-semibold focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF] transition-all outline-none"
+                onBlur={() => handleBlur("department")}
+                className={`w-full px-3.5 py-2.5 rounded-xl text-slate-900 dark:text-white text-[13.5px] font-semibold outline-none transition-all ${
+                  errors.department
+                    ? "bg-red-50/40 dark:bg-red-950/20 border border-red-500/80 focus:border-red-500 ring-1 ring-red-500/20"
+                    : "bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-[#5B5FEF]/20 focus:border-[#5B5FEF]"
+                }`}
               />
+              {errors.department && (
+                <p className="text-[11.5px] font-bold text-red-500 dark:text-red-400 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{errors.department}</span>
+                </p>
+              )}
             </div>
           </div>
 

@@ -10,7 +10,7 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const target = isAuthenticated ? "/dashboard" : "/login";
+    const target = isAuthenticated ? "/dashboard" : "/home";
     if (!isLoading) {
       router.replace(target);
       const timer = setTimeout(() => {
@@ -23,7 +23,7 @@ export default function RootPage() {
       // Fallback timeout in case auth check takes long
       const safetyTimer = setTimeout(() => {
         if (typeof window !== "undefined" && window.location.pathname === "/") {
-          window.location.href = target;
+          window.location.href = "/home";
         }
       }, 1000);
       return () => clearTimeout(safetyTimer);

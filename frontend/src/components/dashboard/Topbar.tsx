@@ -14,17 +14,35 @@ import {
   CheckSquare,
   CheckCheck,
   ExternalLink,
-  Languages,
   ALargeSmall,
   Globe,
   Check,
   ChevronDown,
+  Menu,
+  Compass,
+  Keyboard,
+  BookOpen,
+  Sparkles,
+  Settings,
+  RotateCcw,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useSocket } from "@/context/SocketContext";
 import { useLanguage, LANGUAGES } from "@/context/LanguageContext";
+import { useSidebar } from "@/context/SidebarContext";
 import { api } from "@/lib/api";
 import { NotificationItem } from "@/types/auth";
 import { toast } from "react-hot-toast";
+import dynamic from "next/dynamic";
+
+const GlobalCommandPalette = dynamic(
+  () => import("./GlobalCommandPalette").then((mod) => mod.GlobalCommandPalette),
+  { ssr: false }
+);
+import { Breadcrumbs } from "./Breadcrumbs";
+import { RecentlyViewedWidget } from "./RecentlyViewedWidget";
 
 interface TopbarProps {
   title: string;
@@ -37,28 +55,50 @@ const MAX_TOASTS_PER_POLL = 2;
 export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
   const { user, logout } = useAuth();
   const { language, setLanguage, currentLanguageOption, t } = useLanguage();
+  const { isCollapsed, toggleSidebar } = useSidebar();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [scaleOpen, setScaleOpen] = useState(false);
   const [scale, setScale] = useState(100);
-
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const langRef = useRef<HTMLDivElement>(null);
   const scaleRef = useRef<HTMLDivElement>(null);
+  const helpRef = useRef<HTMLDivElement>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const { socket } = useSocket();
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentNotifs, setRecentNotifs] = useState<NotificationItem[]>([]);
   const knownNotificationIds = useRef<Set<string>>(new Set());
   const isFirstLoad = useRef(true);
 
+  // Global Cmd+K / Ctrl+K keyboard shortcut to toggle omnisearch
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchPaletteOpen((prev) => !prev);
+      }
+    };
+    const handleOpenSearch = () => setSearchPaletteOpen(true);
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("nexus-open-search", handleOpenSearch);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("nexus-open-search", handleOpenSearch);
+    };
+  }, []);
+
   // Initialize and apply saved display scaling
   useEffect(() => {
     const savedScale = parseInt(localStorage.getItem("app_scale") || "100", 10);
-    if (!isNaN(savedScale) && savedScale >= 80 && savedScale <= 130) {
+    if (!isNaN(savedScale) && savedScale >= 80 && savedScale <= 150) {
       setScale(savedScale);
       applyScale(savedScale);
     }
@@ -66,11 +106,13 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
 
   const applyScale = (s: number) => {
     document.documentElement.style.fontSize = `${16 * (s / 100)}px`;
+    (document.documentElement.style as any).zoom = `${s / 100}`;
     localStorage.setItem("app_scale", s.toString());
+    window.dispatchEvent(new CustomEvent("scale-change", { detail: s }));
   };
 
   const handleScaleChange = (newScale: number) => {
-    const clamped = Math.max(80, Math.min(130, newScale));
+    const clamped = Math.max(85, Math.min(150, newScale));
     setScale(clamped);
     applyScale(clamped);
     toast.success(`Display scale: ${clamped}%`, { id: "scale-toast" });
@@ -106,12 +148,12 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
     };
   }, []);
 
-  // Poll for notifications — limited toast alerts
+  // Fetch existing notifications once on mount to populate unread badge and dropdown
   useEffect(() => {
-    if (!user) return;
+    if (!user?._id) return;
 
     let isMounted = true;
-    const checkNotifications = async () => {
+    const fetchInitialNotifications = async () => {
       try {
         const res = await api.get("/notifications");
         if (!isMounted) return;
@@ -120,90 +162,79 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
           setUnreadCount(count);
 
           const list: NotificationItem[] = res.data.data.notifications || [];
-          // Store the latest 5 for the dropdown preview
           setRecentNotifs(list.filter((n) => !n.read).slice(0, 5));
-
-          // On first load, just register all existing IDs — don't spam toasts
-          if (isFirstLoad.current) {
-            list.forEach((n) => knownNotificationIds.current.add(n._id));
-            isFirstLoad.current = false;
-            return;
-          }
-
-          // Collect truly new notifications
-          const brandNew = list.filter(
-            (n) => !n.read && !knownNotificationIds.current.has(n._id)
-          );
-
-          // Only toast for max 2 per cycle
-          let toastCount = 0;
-          for (const n of brandNew) {
-            if (toastCount >= MAX_TOASTS_PER_POLL) break;
-            toastCount++;
-            const isTask = n.type === "task";
-
-            toast(
-              (t) => (
-                <div
-                  onClick={() => {
-                    toast.dismiss(t.id);
-                    router.push(isTask ? "/tasks" : "/notifications");
-                  }}
-                  className="flex items-start gap-2.5 cursor-pointer select-none"
-                >
-                  <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                      isTask
-                        ? "bg-indigo-500/20 text-indigo-400"
-                        : "bg-amber-500/20 text-amber-400"
-                    }`}
-                  >
-                    {isTask ? (
-                      <CheckSquare className="w-3.5 h-3.5" />
-                    ) : (
-                      <MessageSquare className="w-3.5 h-3.5" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[12px] font-bold text-white truncate leading-tight">
-                      {n.title}
-                    </p>
-                    <p className="text-[11px] text-slate-400 font-medium truncate mt-0.5">
-                      {n.message}
-                    </p>
-                  </div>
-                  <ExternalLink className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" />
-                </div>
-              ),
-              { duration: 4000, position: "top-right" },
-            );
-          }
-
-          // If there were more beyond the limit, show a summary
-          if (brandNew.length > MAX_TOASTS_PER_POLL) {
-            const extra = brandNew.length - MAX_TOASTS_PER_POLL;
-            toast(`+${extra} more new notifications`, {
-              duration: 3000,
-              icon: "🔔",
-              position: "top-right",
-            });
-          }
-
-          // Register ALL IDs (including ones we didn't toast)
           list.forEach((n) => knownNotificationIds.current.add(n._id));
+          isFirstLoad.current = false;
         }
       } catch {
         // silent fail on network/auth
       }
     };
 
-    checkNotifications();
-    const interval = setInterval(checkNotifications, 15000); // poll every 15 seconds
+    fetchInitialNotifications();
     return () => {
       isMounted = false;
-      clearInterval(interval);
     };
-  }, [user, router]);
+  }, [user?._id]);
+
+  // Real-time WebSocket listener for new notifications (0 polling, 0 extra HTTP calls)
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewNotification = (n: NotificationItem) => {
+      if (!n || knownNotificationIds.current.has(n._id)) return;
+      knownNotificationIds.current.add(n._id);
+
+      // Increment badge count
+      setUnreadCount((prev) => prev + 1);
+
+      // Add to recent dropdown preview
+      setRecentNotifs((prev) => [n, ...prev.slice(0, 4)]);
+
+      // Trigger instant toast notification
+      const isTask = n.type === "task";
+      toast(
+        (t) => (
+          <div
+            onClick={() => {
+              toast.dismiss(t.id);
+              router.push(isTask ? "/tasks" : "/notifications");
+            }}
+            className="flex items-start gap-2.5 cursor-pointer select-none"
+          >
+            <div
+              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                isTask
+                  ? "bg-indigo-500/20 text-indigo-400"
+                  : "bg-amber-500/20 text-amber-400"
+              }`}
+            >
+              {isTask ? (
+                <CheckSquare className="w-3.5 h-3.5" />
+              ) : (
+                <MessageSquare className="w-3.5 h-3.5" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-bold text-white truncate leading-tight">
+                {n.title}
+              </p>
+              <p className="text-[11px] text-slate-400 font-medium truncate mt-0.5">
+                {n.message}
+              </p>
+            </div>
+            <ExternalLink className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" />
+          </div>
+        ),
+        { duration: 4000, position: "top-right" }
+      );
+    };
+
+    socket.on("notification:new", handleNewNotification);
+    return () => {
+      socket.off("notification:new", handleNewNotification);
+    };
+  }, [socket, router]);
 
   const toggleTheme = () => {
     const newTheme = theme === "light" ? "dark" : "light";
@@ -238,14 +269,24 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
       if (scaleRef.current && !scaleRef.current.contains(event.target as Node)) {
         setScaleOpen(false);
       }
+      if (helpRef.current && !helpRef.current.contains(event.target as Node)) {
+        setHelpOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleLogout = async () => {
-    await logout();
-    router.push("/login");
+    try {
+      await logout();
+    } catch {
+      // ignore
+    } finally {
+      if (typeof window !== "undefined") {
+        window.location.replace("/login");
+      }
+    }
   };
 
   const handleMarkAllRead = async () => {
@@ -277,20 +318,34 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
   };
 
   return (
-    <header className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md px-6 lg:px-8 py-3.5 gap-4 sticky top-0 z-40 transition-colors duration-300 shadow-[0_1px_3px_rgba(0,0,0,0.03)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
-      {/* Title */}
-      <div className="flex items-center gap-3">
+    <header
+      className="glass-header flex items-center justify-between px-3.5 sm:px-6 lg:px-8 py-2.5 sm:py-3.5 gap-2.5 sm:gap-4 sticky top-0 z-40 transition-colors duration-300 ease-in-out shadow-[0_1px_3px_rgba(0,0,0,0.03)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.2)]"
+    >
+      {/* Title, Breadcrumbs & 3-Line Sidebar Toggle */}
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+        {/* 3-Line Sidebar Side-Collapse Toggle Button */}
+        <button
+          onClick={toggleSidebar}
+          aria-label={isCollapsed ? t("expand_sidebar", "Expand sidebar") : t("collapse_sidebar", "Collapse sidebar")}
+          title={isCollapsed ? `${t("expand_sidebar", "Expand sidebar")} (Ctrl + [)` : `${t("collapse_sidebar", "Collapse sidebar")} (Ctrl + [)`}
+          className="w-9 h-9 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all flex items-center justify-center shadow-2xs cursor-pointer shrink-0 group active:scale-95"
+        >
+          <Menu className="w-4.5 h-4.5 group-hover:scale-105 transition-transform" />
+        </button>
+
         {icon && (
-          <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/50 text-[#5B5FEF] rounded-xl flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-800/60 shadow-2xs">
+          <div className="hidden sm:flex w-10 h-10 bg-indigo-50 dark:bg-indigo-950/50 text-[#5B5FEF] rounded-xl items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-800/60 shadow-2xs">
             {icon}
           </div>
         )}
-        <div>
-          <h1 className="text-[19px] lg:text-[21px] font-black text-slate-900 dark:text-white tracking-tight leading-tight transition-colors">
+        <div className="min-w-0 flex-1">
+          {/* Dynamic Hierarchy Breadcrumbs Trail */}
+          <Breadcrumbs className="hidden sm:flex mb-0.5" />
+          <h1 className="text-[16px] sm:text-[19px] lg:text-[21px] font-black text-slate-900 dark:text-white tracking-tight leading-tight transition-colors truncate">
             {title}
           </h1>
           {subtitle && (
-            <p className="text-[12.5px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5 transition-colors">
+            <p className="hidden md:block text-[12.5px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5 transition-colors truncate">
               {subtitle}
             </p>
           )}
@@ -299,20 +354,33 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
 
       {/* Right Actions */}
       <div className="flex items-center gap-3.5">
-        {/* Search Bar with Crisp Border & Contrast */}
-        <div className="hidden md:flex items-center relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
-          <input
-            type="text"
-            placeholder={t("search_workspace")}
-            className="pl-9 pr-14 py-2 w-[220px] lg:w-[260px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900 text-[13px] font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-[#5B5FEF] focus:ring-2 focus:ring-[#5B5FEF]/15 transition-all shadow-2xs"
-          />
-          <div className="absolute right-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-2xs">
+        {/* Search Trigger Button with Crisp Border & Contrast */}
+        <button
+          type="button"
+          onClick={() => setSearchPaletteOpen(true)}
+          className="hidden md:flex items-center relative pl-9 pr-14 py-2 w-[220px] lg:w-[260px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900 hover:bg-white dark:hover:bg-slate-800 text-[13px] font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none focus:border-[#5B5FEF] focus:ring-2 focus:ring-[#5B5FEF]/15 transition-all shadow-2xs cursor-pointer text-left group"
+          title="Search workspace (Cmd+K / Ctrl+K)"
+        >
+          <Search className="w-4 h-4 text-slate-400 group-hover:text-[#5B5FEF] absolute left-3 transition-colors" />
+          <span className="truncate">{t("search_workspace", "Search workspace...")}</span>
+          <div className="absolute right-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-2xs group-hover:border-[#5B5FEF]/40 transition-colors">
             Cmd+K
           </div>
-        </div>
+        </button>
 
-        <div className="flex items-center gap-2 border-r border-slate-200 dark:border-slate-800 pr-3.5">
+        {/* Mobile Search Icon Button */}
+        <button
+          type="button"
+          onClick={() => setSearchPaletteOpen(true)}
+          className="md:hidden p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-[#5B5FEF] transition-colors cursor-pointer"
+          title="Search workspace"
+          aria-label="Search workspace"
+        >
+          <Search className="w-4 h-4" />
+        </button>
+
+        {/* Preferences Segment Capsule (Language & Display Zoom) */}
+        <div className="hidden lg:flex items-center p-0.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
           {/* 1. Language Switcher Dropdown */}
           <div ref={langRef} className="relative">
             <button
@@ -320,20 +388,16 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
                 setLangOpen((v) => !v);
                 setScaleOpen(false);
                 setNotifOpen(false);
+                setHelpOpen(false);
                 setOpen(false);
               }}
-              className="relative rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center gap-2 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 cursor-pointer shadow-2xs"
+              className="rounded-lg px-2.5 py-1 text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700/90 transition-all flex items-center gap-1.5 cursor-pointer text-[12px] font-extrabold"
               aria-label={t("language")}
               title={t("language")}
             >
-              <div className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] flex items-center justify-center shrink-0">
-                <Languages className="w-3.5 h-3.5" />
-              </div>
-              <span className="text-[12px] font-black flex items-center gap-1">
-                <span>{currentLanguageOption.flag}</span>
-                <span className="hidden sm:inline">{currentLanguageOption.code.toUpperCase()}</span>
-              </span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
+              <span className="text-sm leading-none">{currentLanguageOption.flag}</span>
+              <span>{currentLanguageOption.code.toUpperCase()}</span>
+              <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
             </button>
 
             {/* Language Dropdown Menu */}
@@ -376,6 +440,9 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
             )}
           </div>
 
+          {/* Capsule Divider */}
+          <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
           {/* 2. Page Size Increment & Decrement (Scale) Dropdown */}
           <div ref={scaleRef} className="relative">
             <button
@@ -383,91 +450,147 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
                 setScaleOpen((v) => !v);
                 setLangOpen(false);
                 setNotifOpen(false);
+                setHelpOpen(false);
                 setOpen(false);
               }}
-              className="relative rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center gap-2 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 cursor-pointer shadow-2xs"
-              aria-label={t("display_scale")}
-              title={t("display_scale")}
+              className={`rounded-lg px-2.5 py-1 transition-all flex items-center gap-1.5 cursor-pointer text-[12px] font-extrabold ${
+                scaleOpen
+                  ? "bg-[#EEF0FF] dark:bg-[#5B5FEF]/20 text-[#5B5FEF] dark:text-[#818CF8]"
+                  : "text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700/90"
+              }`}
+              aria-label={t("display_scale", "Display Size")}
+              title={t("display_scale", "Display Size & Accessibility Zoom")}
             >
-              <div className="w-6 h-6 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                <ALargeSmall className="w-3.5 h-3.5" />
-              </div>
-              <span className="text-[12px] font-black hidden sm:inline">
-                {scale}%
-              </span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
+              <ALargeSmall className="w-3.5 h-3.5 text-[#5B5FEF] dark:text-[#818CF8]" />
+              <span>{scale}%</span>
+              <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
             </button>
 
             {/* Display Size Scale Dropdown Menu */}
             {scaleOpen && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-[220px] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-[0_12px_40px_rgba(15,23,42,0.15)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.4)] p-2.5 space-y-2 animate-in fade-in zoom-in-95">
-                <div className="px-1.5 pb-2 border-b border-slate-100 dark:border-slate-700/80 flex items-center justify-between">
-                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                    {t("display_scale")}
-                  </span>
-                  <span className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/50">
+              <div className="absolute right-0 top-full z-50 mt-2.5 w-[290px] sm:w-[310px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 shadow-[0_20px_60px_rgba(15,23,42,0.18)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] p-3.5 space-y-3 animate-in fade-in zoom-in-95">
+                {/* Header with Title and Current Value */}
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-[#5B5FEF] dark:text-indigo-400">
+                      <ALargeSmall className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-[13px] font-extrabold text-slate-900 dark:text-white leading-tight">
+                        {t("accessibility_display", "Display & Sizing")}
+                      </h4>
+                      <p className="text-[10.5px] text-slate-400 font-medium leading-tight mt-0.5">
+                        Adjust UI text & layout scale
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[12px] font-black text-[#5B5FEF] dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-full border border-indigo-200/60 dark:border-indigo-800/60 shadow-2xs">
                     {scale}%
                   </span>
                 </div>
 
-                {/* Quick Increment / Decrement Stepper */}
-                <div className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-700/60">
-                  <button
-                    onClick={() => handleScaleChange(scale - 5)}
-                    disabled={scale <= 80}
-                    className="p-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40 transition-all font-black text-sm w-8 h-8 flex items-center justify-center shadow-xs cursor-pointer"
-                    title={t("decrease_size")}
-                  >
-                    -
-                  </button>
-                  <span className="text-[12px] font-extrabold text-slate-800 dark:text-slate-200">
-                    {t("text_size")}
-                  </span>
-                  <button
-                    onClick={() => handleScaleChange(scale + 5)}
-                    disabled={scale >= 130}
-                    className="p-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40 transition-all font-black text-sm w-8 h-8 flex items-center justify-center shadow-xs cursor-pointer"
-                    title={t("increase_size")}
-                  >
-                    +
-                  </button>
+                {/* Interactive Stepper with Visual Scale Gauge */}
+                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => handleScaleChange(scale - 5)}
+                      disabled={scale <= 85}
+                      className="w-9 h-9 rounded-xl bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-800 dark:text-white disabled:opacity-40 transition-all font-black text-base flex items-center justify-center shadow-xs border border-slate-200 dark:border-slate-600 cursor-pointer active:scale-95 shrink-0"
+                      title={t("decrease_size", "Decrease Size (-5%)")}
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </button>
+
+                    <div className="flex-1 text-center px-2">
+                      <span className="text-[13px] font-black text-slate-800 dark:text-slate-100">
+                        {scale === 100 ? "Standard 100%" : `${scale}% Magnification`}
+                      </span>
+                      {/* Visual Meter Bar */}
+                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#5B5FEF] to-purple-500 transition-all duration-200 rounded-full"
+                          style={{ width: `${Math.min(100, Math.max(10, ((scale - 85) / (150 - 85)) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleScaleChange(scale + 5)}
+                      disabled={scale >= 150}
+                      className="w-9 h-9 rounded-xl bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-800 dark:text-white disabled:opacity-40 transition-all font-black text-base flex items-center justify-center shadow-xs border border-slate-200 dark:border-slate-600 cursor-pointer active:scale-95 shrink-0"
+                      title={t("increase_size", "Increase Size (+5%)")}
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Scale Presets */}
-                <div className="space-y-1 pt-1">
+                {/* Scale Presets List */}
+                <div className="space-y-1">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-400 px-1 mb-1">
+                    Preset Sizing Options
+                  </p>
                   {[
-                    { value: 90, label: t("size_compact"), tag: "A-" },
-                    { value: 100, label: t("size_default"), tag: "A" },
-                    { value: 110, label: t("size_medium"), tag: "A+" },
-                    { value: 125, label: t("size_large"), tag: "A++" },
+                    { value: 90, label: t("size_compact", "Compact"), percent: "90%", tag: "A-" },
+                    { value: 100, label: t("size_default", "Default Standard"), percent: "100%", tag: "A" },
+                    { value: 115, label: t("size_medium", "Medium Enhanced"), percent: "115%", tag: "A+" },
+                    { value: 130, label: t("size_large", "Large Readable"), percent: "130%", tag: "A++" },
+                    { value: 150, label: t("size_huge", "Maximum Large"), percent: "150%", tag: "A+++" },
                   ].map((preset) => {
                     const isCurrent = scale === preset.value;
                     return (
                       <button
                         key={preset.value}
                         onClick={() => handleScaleChange(preset.value)}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-[12px] font-bold transition-all cursor-pointer ${
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12.5px] font-bold transition-all cursor-pointer ${
                           isCurrent
-                            ? "bg-[#EEF0FF] dark:bg-[#5B5FEF]/20 text-[#5B5FEF] dark:text-[#818CF8]"
-                            : "text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60"
+                            ? "bg-[#EEF0FF] dark:bg-[#5B5FEF]/20 text-[#5B5FEF] dark:text-[#818CF8] border border-[#5B5FEF]/30 shadow-2xs font-extrabold"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/80 border border-transparent"
                         }`}
                       >
-                        <span>{preset.label}</span>
-                        <span className="text-[11px] font-mono opacity-60 font-bold">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${isCurrent ? "bg-[#5B5FEF]" : "bg-slate-300 dark:bg-slate-600"}`} />
+                          <span>{preset.label}</span>
+                          <span className="text-[11px] opacity-70 font-semibold">({preset.percent})</span>
+                        </div>
+                        <span className={`text-[11px] font-mono font-black px-1.5 py-0.5 rounded-md ${
+                          isCurrent
+                            ? "bg-[#5B5FEF] text-white"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                        }`}>
                           {preset.tag}
                         </span>
                       </button>
                     );
                   })}
                 </div>
+
+                {/* Reset to 100% Footer Action */}
+                {scale !== 100 && (
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      onClick={() => handleScaleChange(100)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[12px] font-extrabold transition-all cursor-pointer active:scale-95"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>{t("reset_size", "Reset to 100% Default")}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
+        </div>
 
-          {/* 3. Theme Toggle Button */}
+        {/* 2. Utility Actions Strip (Recently Viewed, Theme, Notifications, Unified Help & Resources) */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Recently Viewed Activity Log Widget */}
+          <RecentlyViewedWidget />
+
+          {/* Theme Toggle Button */}
           <button
             onClick={toggleTheme}
-            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all flex items-center justify-center shadow-2xs cursor-pointer"
+            className="w-9 h-9 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all flex items-center justify-center shadow-2xs cursor-pointer active:scale-95"
             aria-label={t("toggle_theme")}
             title={theme === "dark" ? t("switch_light") : t("switch_dark")}
           >
@@ -478,11 +601,17 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
             )}
           </button>
 
-          {/* 4. Notifications Button */}
+          {/* Notifications Button */}
           <div ref={notifRef} className="relative">
             <button
-              onClick={() => setNotifOpen((v) => !v)}
-              className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all flex items-center justify-center shadow-2xs cursor-pointer relative"
+              onClick={() => {
+                setNotifOpen((v) => !v);
+                setHelpOpen(false);
+                setLangOpen(false);
+                setScaleOpen(false);
+                setOpen(false);
+              }}
+              className="w-9 h-9 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all flex items-center justify-center shadow-2xs cursor-pointer relative active:scale-95"
               aria-label={t("notifications_title")}
               title={t("notifications_title")}
             >
@@ -594,31 +723,159 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
             )}
           </div>
 
-          {/* 5. Messages Button */}
-          <button
-            onClick={() => router.push("/empty-states")}
-            className="hidden sm:flex w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all items-center justify-center shadow-2xs cursor-pointer"
-            aria-label={t("workspace_hub")}
-            title={t("workspace_hub")}
-          >
-            <MessageSquare className="h-4.5 w-4.5" />
-          </button>
+          {/* Unified Production Help & Resources Menu */}
+          <div ref={helpRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setHelpOpen((v) => !v);
+                setNotifOpen(false);
+                setLangOpen(false);
+                setScaleOpen(false);
+                setOpen(false);
+              }}
+              className={`w-9 h-9 rounded-xl border transition-all flex items-center justify-center shadow-2xs cursor-pointer active:scale-95 ${
+                helpOpen
+                  ? "bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 text-[#5B5FEF]"
+                  : "bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/90 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+              }`}
+              title="Help, Guides & Shortcuts"
+              aria-label="Help & Resources"
+            >
+              <HelpCircle className="h-4.5 w-4.5" />
+            </button>
 
-          {/* 6. Help Button */}
-          <button
-            onClick={() => router.push("/help")}
-            className="hidden sm:flex w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all items-center justify-center shadow-2xs cursor-pointer"
-            aria-label={t("help")}
-            title={t("help")}
-          >
-            <HelpCircle className="h-4.5 w-4.5" />
-          </button>
+            {helpOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 w-[275px] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-[0_12px_40px_rgba(15,23,42,0.15)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.4)] p-1.5 space-y-1 animate-in fade-in zoom-in-95">
+                {/* Dropdown Header */}
+                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700/80 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#5B5FEF]" />
+                    <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      Help & Resources
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-[#5B5FEF] bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full border border-indigo-200/60">
+                    EmpSphere
+                  </span>
+                </div>
+
+                {/* 1. Interactive Guided Tour */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    window.dispatchEvent(new Event("nexus-start-tour"));
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12.5px] font-bold text-slate-700 dark:text-slate-200 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/40 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                      <Compass className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <p className="leading-tight text-slate-900 dark:text-white">Workspace Tour</p>
+                      <p className="text-[10.5px] text-slate-400 font-medium">Interactive walkthrough</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-200/60">
+                    Tour
+                  </span>
+                </button>
+
+                {/* 2. Keyboard Shortcuts */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    window.dispatchEvent(new Event("nexus-open-shortcuts"));
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12.5px] font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50/60 dark:hover:bg-amber-950/40 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                      <Keyboard className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <p className="leading-tight text-slate-900 dark:text-white">Keyboard Shortcuts</p>
+                      <p className="text-[10.5px] text-slate-400 font-medium">Navigation cheat sheet</p>
+                    </div>
+                  </div>
+                  <kbd className="text-[10.5px] font-mono font-black text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600 shadow-2xs">
+                    ?
+                  </kbd>
+                </button>
+
+                {/* 3. Help Center Documentation */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    router.push("/help");
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12.5px] font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/40 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <p className="leading-tight text-slate-900 dark:text-white">Documentation</p>
+                      <p className="text-[10.5px] text-slate-400 font-medium">Guides, FAQs & features</p>
+                    </div>
+                  </div>
+                  <span className="text-[10.5px] font-extrabold text-slate-400 group-hover:text-emerald-600 transition-colors">
+                    Docs →
+                  </span>
+                </button>
+
+                {/* 4. Community & Feedback */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    router.push("/empty-states");
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12.5px] font-bold text-slate-700 dark:text-slate-200 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <p className="leading-tight text-slate-900 dark:text-white">Workspace Hub</p>
+                      <p className="text-[10.5px] text-slate-400 font-medium">Feedback & community</p>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Dropdown Footer */}
+                <div className="pt-1.5 pb-1 px-3 border-t border-slate-100 dark:border-slate-700/80 text-[10.5px] text-slate-400 flex items-center justify-between font-medium">
+                  <span>Quick Search</span>
+                  <span className="font-mono font-bold">Ctrl + K</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Vertical Divider */}
+        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700/80" />
 
         {/* User Profile Avatar Dropdown */}
         <div ref={menuRef} className="relative">
           <button
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => {
+              setOpen((v) => {
+                if (!v) {
+                  setHelpOpen(false);
+                  setNotifOpen(false);
+                  setLangOpen(false);
+                  setScaleOpen(false);
+                }
+                return !v;
+              });
+            }}
             className="flex items-center gap-2 rounded-full ring-2 ring-slate-200 dark:ring-slate-700 hover:ring-[#5B5FEF] transition-all cursor-pointer shadow-2xs p-0.5"
             title={user ? `${user.firstName} ${user.lastName}` : t("profile")}
           >
@@ -663,7 +920,7 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
                 }}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 cursor-pointer"
               >
-                <HelpCircle className="h-4 w-4 text-slate-400" /> {t("settings")}
+                <Settings className="h-4 w-4 text-slate-400" /> {t("settings")}
               </button>
 
               <div className="border-t border-slate-100 dark:border-slate-700/80 my-1" />
@@ -678,6 +935,12 @@ export const Topbar = ({ title, subtitle, icon }: TopbarProps) => {
           )}
         </div>
       </div>
+
+      {/* Global Command Palette Spotlight Modal */}
+      <GlobalCommandPalette
+        isOpen={searchPaletteOpen}
+        onClose={() => setSearchPaletteOpen(false)}
+      />
     </header>
   );
 };

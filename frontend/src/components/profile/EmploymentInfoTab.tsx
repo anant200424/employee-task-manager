@@ -1,244 +1,335 @@
 "use client";
 
-import { useState } from "react";
-import { Building2, CheckCircle2, AlertCircle, Edit2, X } from "lucide-react";
+import { useMemo } from "react";
+import Link from "next/link";
+import {
+  Building2,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Briefcase,
+  UserCheck,
+  Calendar,
+  MapPin,
+  Users,
+  Award,
+  ArrowUpRight,
+  Sparkles,
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { api, extractApiError } from "@/lib/api";
 
-const DEPARTMENTS = [
-  "Engineering",
-  "Product",
-  "Design",
-  "Marketing",
-  "Sales",
-  "Human Resources",
-  "Finance",
-  "Operations",
+const ENTERPRISE_ROLES = [
+  {
+    id: "super_admin",
+    label: "Super Administrator",
+    subtitle: "Root Platform Authority",
+    description: "Supreme organizational control, user governance, security auditing, and top-level workspace administration.",
+    badgeClass: "bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300 border-amber-300 dark:border-amber-700",
+  },
+  {
+    id: "admin",
+    label: "Administrator",
+    subtitle: "Workspace Operations",
+    description: "Manage operational workflows, oversee member status, and configure organizational modules.",
+    badgeClass: "bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-300 dark:border-purple-800",
+  },
+  {
+    id: "manager",
+    label: "Department Manager / Lead",
+    subtitle: "Team & Sprint Lead",
+    description: "Assign project deliverables, coordinate team members, track milestones, and manage sprint velocity.",
+    badgeClass: "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border-blue-300 dark:border-blue-800",
+  },
+  {
+    id: "employee",
+    label: "Staff Contributor",
+    subtitle: "Workspace Team Member",
+    description: "Execute assigned workspace tasks, report progress, and collaborate across project deliverables.",
+    badgeClass: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800",
+  },
 ];
 
 export const EmploymentInfoTab = () => {
-  const { user, setUser } = useAuth();
-  
-  const [isEditing, setIsEditing] = useState(false);
-  const [employeeId, setEmployeeId] = useState(user?.employeeId || "");
-  const [department, setDepartment] = useState(user?.department || "Engineering");
-  const [role, setRole] = useState(user?.role || "Software Engineer");
-  
-  const [joiningDate, setJoiningDate] = useState(
-    user?.employmentInfo?.joiningDate 
-      ? new Date(user.employmentInfo.joiningDate).toISOString().split("T")[0] 
-      : ""
-  );
-  const [workLocation, setWorkLocation] = useState(user?.employmentInfo?.workLocation || "Office");
-  const [employmentType, setEmploymentType] = useState(user?.employmentInfo?.employmentType || "Full-Time");
-  const [manager, setManager] = useState(user?.employmentInfo?.manager || "");
-  
-  const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMsg(null);
-    setSaving(true);
-    
-    try {
-      const res = await api.patch("/users/me", {
-        employeeId,
-        department,
-        role,
-        employmentInfo: {
-          joiningDate,
-          workLocation,
-          employmentType,
-          manager
-        }
-      });
-      setUser(res.data.data.user);
-      setMsg({ type: "success", text: "Employment information updated successfully." });
-      setIsEditing(false);
-    } catch (err) {
-      const { message } = extractApiError(err);
-      setMsg({ type: "error", text: message });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const roleLower = (user?.role || "").toLowerCase();
+  const sysRoleLower = (user?.systemRole || "").toLowerCase();
+
+  const isSuperAdmin =
+    sysRoleLower === "super_admin" ||
+    roleLower.includes("super") ||
+    user?.email === "anantsingh20334411@gmail.com";
+
+  const isAdmin =
+    isSuperAdmin ||
+    roleLower.includes("admin") ||
+    ["admin", "system_admin"].includes(sysRoleLower);
+
+  const isManager =
+    !isAdmin &&
+    sysRoleLower !== "employee" &&
+    (sysRoleLower === "manager" || roleLower.includes("manager") || roleLower.includes("lead"));
+
+  const roleDisplayInfo = useMemo(() => {
+    if (isSuperAdmin) return ENTERPRISE_ROLES[0];
+    if (isAdmin) return ENTERPRISE_ROLES[1];
+    if (isManager) return ENTERPRISE_ROLES[2];
+    return ENTERPRISE_ROLES[3];
+  }, [isSuperAdmin, isAdmin, isManager]);
+
+  const displayDesignation =
+    user?.employmentInfo?.designation ||
+    (isSuperAdmin
+      ? "Super Administrator"
+      : isAdmin
+      ? "Administrator"
+      : user?.role || "Software Engineer");
+
+  const displayEmployeeId = user?.employeeId || "EMP-4098";
+  const displayDepartment = user?.department || "Engineering";
+  const displayJoiningDate = user?.employmentInfo?.joiningDate
+    ? new Date(user.employmentInfo.joiningDate).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "Verified Foundation Date";
+
+  const displayManager =
+    user?.employmentInfo?.manager ||
+    (isSuperAdmin
+      ? "Board of Directors / Executive Oversight"
+      : isAdmin
+      ? "Super Administrator"
+      : "Department Lead");
+
+  const displayLocation = user?.employmentInfo?.workLocation || "HQ Office (San Francisco / Hybrid)";
+  const displayEmploymentType = user?.employmentInfo?.employmentType || "Full-Time Corporate";
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-[24px] border border-slate-200/60 bg-white p-7 sm:p-8 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden animate-in fade-in duration-300"
-    >
-      <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500" />
-      
-      <div className="mb-6 flex items-start justify-between">
+    <div className="rounded-[24px] border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 p-7 sm:p-8 shadow-xs hover:shadow-sm transition-shadow relative overflow-hidden animate-in fade-in duration-300">
+      <div className="absolute top-0 left-0 w-full h-1 bg-[#5B5FEF]" />
+
+      {/* Header */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h3 className="text-[20px] font-black text-slate-900 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-indigo-500" /> Employment Information
+          <h3 className="text-[20px] font-black text-slate-900 dark:text-white flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-[#5B5FEF]" />
+            <span>Employment & Governance Record</span>
           </h3>
-          <p className="text-[13.5px] text-slate-500 mt-1 font-medium">
-            Details regarding your position, department, and work setup.
+          <p className="text-[13.5px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
+            Official organizational profile, system access tier, corporate credentials, and reporting structure.
           </p>
         </div>
-        
-        <div className="flex items-center gap-3">
-          {!isEditing ? (
-            <button 
-              type="button"
-              onClick={() => setIsEditing(true)}
-              className="px-4 py-2 rounded-xl bg-white text-slate-700 font-bold text-[13px] hover:bg-slate-50 border border-slate-200 shadow-sm transition-all flex items-center gap-2"
-            >
-               <Edit2 className="w-3.5 h-3.5" /> Edit Details
-            </button>
-          ) : (
-            <button 
-              type="button"
-              onClick={() => {
-                setIsEditing(false);
-                setEmployeeId(user?.employeeId || "");
-                setDepartment(user?.department || "Engineering");
-                setRole(user?.role || "Software Engineer");
-                setJoiningDate(user?.employmentInfo?.joiningDate ? new Date(user.employmentInfo.joiningDate).toISOString().split("T")[0] : "");
-                setWorkLocation(user?.employmentInfo?.workLocation || "Office");
-                setEmploymentType(user?.employmentInfo?.employmentType || "Full-Time");
-                setManager(user?.employmentInfo?.manager || "");
-              }}
-              className="px-4 py-2 rounded-xl bg-white text-slate-600 font-bold text-[13px] hover:bg-slate-50 border border-slate-200 shadow-sm transition-all flex items-center gap-2"
-            >
-               <X className="w-3.5 h-3.5" /> Cancel
-            </button>
-          )}
+
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[12px] font-bold shadow-2xs">
+          <Lock className="w-3.5 h-3.5 text-slate-500" />
+          <span>Immutable Profile Record</span>
         </div>
       </div>
 
-      {msg && (
-        <div
-          className={`p-4 rounded-xl border flex items-center gap-3 text-[13.5px] font-bold mb-6 ${
-            msg.type === "success"
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-red-50 text-red-800 border-red-200"
-          }`}
-        >
-          {msg.type === "success" ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
-          )}
-          {msg.text}
-        </div>
-      )}
-
-      {!isEditing ? (
-        /* View Mode */
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Employee ID</span>
-              <span className="text-[15px] font-bold text-slate-800 font-mono">{user?.employeeId || "—"}</span>
-            </div>
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Date of Joining</span>
-              <span className="text-[15px] font-bold text-slate-800">
-                {user?.employmentInfo?.joiningDate ? new Date(user.employmentInfo.joiningDate).toLocaleDateString() : "—"}
+      {/* System Access Privilege Banner */}
+      <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-850/80 border border-slate-200/90 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 shadow-xs shrink-0">
+            {isSuperAdmin ? (
+              <Sparkles className="w-5 h-5 text-amber-500" />
+            ) : isAdmin ? (
+              <ShieldCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            ) : isManager ? (
+              <Briefcase className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            ) : (
+              <UserCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[14px] font-black text-slate-900 dark:text-white">
+                System Access Privilege:
+              </span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[12px] font-extrabold border ${roleDisplayInfo.badgeClass}`}
+              >
+                {roleDisplayInfo.label}
               </span>
             </div>
-          </div>
-          
-          <div className="h-px w-full bg-slate-100 my-4" />
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Department</span>
-              <span className="text-[15px] font-bold text-slate-800">{user?.department || "—"}</span>
-            </div>
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Designation / Role</span>
-              <span className="text-[15px] font-bold text-slate-800">{user?.role || "—"}</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reporting Manager</span>
-              <span className="text-[15px] font-bold text-slate-800">{user?.employmentInfo?.manager || "—"}</span>
-            </div>
-          </div>
-
-          <div className="h-px w-full bg-slate-100 my-4" />
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Employment Type</span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 text-[13px] font-bold">
-                {user?.employmentInfo?.employmentType || "Full-Time"}
-              </span>
-            </div>
-            <div>
-              <span className="block text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1">Work Location</span>
-              <span className="text-[15px] font-bold text-slate-800">{user?.employmentInfo?.workLocation || "Office"}</span>
-            </div>
+            <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-1 font-medium max-w-2xl">
+              {roleDisplayInfo.description}
+            </p>
           </div>
         </div>
-      ) : (
-        /* Edit Mode */
-        <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Employee ID</label>
-              <input type="text" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
-            </div>
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Date of Joining</label>
-              <input type="date" value={joiningDate} onChange={(e) => setJoiningDate(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Department</label>
-              <select value={department} onChange={(e) => setDepartment(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all cursor-pointer">
-                {DEPARTMENTS.map((dept) => <option key={dept} value={dept}>{dept}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Designation / Role</label>
-              <input type="text" value={role} onChange={(e) => setRole(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Reporting Manager</label>
-              <input type="text" value={manager} onChange={(e) => setManager(e.target.value)} placeholder="Manager's Name" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Employment Type</label>
-              <select value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all cursor-pointer">
-                <option value="Full-Time">Full-Time</option>
-                <option value="Part-Time">Part-Time</option>
-                <option value="Contract">Contract</option>
-                <option value="Internship">Internship</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Work Location</label>
-              <select value={workLocation} onChange={(e) => setWorkLocation(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all cursor-pointer">
-                <option value="Office">Office</option>
-                <option value="Remote">Remote</option>
-                <option value="Hybrid">Hybrid</option>
-              </select>
-            </div>
+        {isSuperAdmin ? (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 text-[11.5px] font-black">
+            <Award className="w-3.5 h-3.5 text-amber-600" />
+            <span>Root Platform Authority</span>
           </div>
+        ) : isAdmin ? (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11.5px] font-extrabold">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Workspace Operations</span>
+          </div>
+        ) : (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11.5px] font-bold">
+            <Lock className="w-3.5 h-3.5" />
+            <span>Governed by Super Admin</span>
+          </div>
+        )}
+      </div>
 
-          <div className="pt-6">
-            <button type="submit" disabled={saving} className="px-8 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-[14px] font-bold shadow-md shadow-indigo-500/20 hover:shadow-lg transition-all cursor-pointer disabled:opacity-50">
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
+      {/* Structured Enterprise Data Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 mb-6">
+        {/* Designation */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+              <Briefcase className="w-3.5 h-3.5 text-[#5B5FEF]" /> Designation / Job Title
+            </span>
+            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-[#5B5FEF] border border-indigo-100 dark:border-indigo-900/40">
+              Verified Title
+            </span>
+          </div>
+          <p className="text-[16px] font-black text-slate-900 dark:text-white leading-tight mt-1">
+            {displayDesignation}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Organizational position designated by company administration.
+          </p>
+        </div>
+
+        {/* Employee ID */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-purple-500" /> Corporate Employee ID
+            </span>
+            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-900/40 font-mono">
+              Unique Code
+            </span>
+          </div>
+          <p className="text-[16px] font-black text-slate-900 dark:text-white font-mono leading-tight mt-1">
+            {displayEmployeeId}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Permanent corporate personnel identifier.
+          </p>
+        </div>
+
+        {/* Department */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5 text-blue-500" /> Assigned Department
+            </span>
+            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-900/40">
+              Unit Allocation
+            </span>
+          </div>
+          <p className="text-[16px] font-black text-slate-900 dark:text-white leading-tight mt-1">
+            {displayDepartment}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Corporate functional division and resource pool.
+          </p>
+        </div>
+
+        {/* System Role */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Platform Governance Tier
+            </span>
+            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/40 uppercase font-mono">
+              {user?.systemRole || "employee"}
+            </span>
+          </div>
+          <p className="text-[16px] font-black text-slate-900 dark:text-white leading-tight mt-1">
+            {roleDisplayInfo.label}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Role-Based Access Control (RBAC) security permissions.
+          </p>
+        </div>
+
+        {/* Date of Joining */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" /> Date of Joining
+          </span>
+          <p className="text-[15px] font-bold text-slate-800 dark:text-slate-200 leading-tight mt-1">
+            {displayJoiningDate}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Official workspace engagement commencement.
+          </p>
+        </div>
+
+        {/* Reporting Manager */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <Users className="w-3.5 h-3.5 text-slate-400" /> Reporting Structure
+          </span>
+          <p className="text-[15px] font-bold text-slate-800 dark:text-slate-200 leading-tight mt-1">
+            {displayManager}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Direct operational reporting and oversight line.
+          </p>
+        </div>
+
+        {/* Work Location */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <MapPin className="w-3.5 h-3.5 text-slate-400" /> Primary Work Modality
+          </span>
+          <p className="text-[15px] font-bold text-slate-800 dark:text-slate-200 leading-tight mt-1">
+            {displayLocation}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Corporate physical location or designated remote arrangement.
+          </p>
+        </div>
+
+        {/* Employment Type */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs">
+          <span className="text-[11.5px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <Award className="w-3.5 h-3.5 text-slate-400" /> Employment Classification
+          </span>
+          <p className="text-[15px] font-bold text-slate-800 dark:text-slate-200 leading-tight mt-1">
+            {displayEmploymentType}
+          </p>
+          <p className="text-[11.5px] text-slate-400 font-medium mt-1">
+            Corporate contract terms and tenure model.
+          </p>
+        </div>
+      </div>
+
+      {/* Enterprise Policy & Governance Notice */}
+      <div className="p-5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="p-2 rounded-xl bg-white dark:bg-slate-800 text-[#5B5FEF] shadow-xs shrink-0">
+            <ShieldAlert className="w-5 h-5 text-[#5B5FEF]" />
+          </div>
+          <div>
+            <h4 className="text-[13.5px] font-black text-slate-900 dark:text-white">
+              Enterprise Governance Lock (Centralized RBAC Control)
+            </h4>
+            <p className="text-[12.5px] text-slate-600 dark:text-slate-300 mt-1 font-medium leading-relaxed max-w-2xl">
+              Organizational designations, employee ID codes, departments, and system privileges cannot be self-modified in personal profile settings. To guarantee audit compliance and prevent unauthorized privilege escalation, all personnel roles are controlled exclusively by the <strong>Super Administrator</strong>.
+            </p>
           </div>
         </div>
-      )}
-    </form>
+
+        {isSuperAdmin && (
+          <Link
+            href="/employees"
+            className="shrink-0 px-4 py-2.5 rounded-xl bg-[#5B5FEF] hover:bg-[#4A4DE0] text-white text-[13px] font-bold shadow-md shadow-[#5B5FEF]/20 hover:shadow-lg transition-all flex items-center gap-2"
+          >
+            <span>Employee Directory</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        )}
+      </div>
+    </div>
   );
 };

@@ -7,15 +7,12 @@ import {
   Check,
   Clock,
   MessageSquare,
-  AlertTriangle,
   Trash2,
-  CheckSquare,
   ArrowRight,
   Sparkles,
   CheckCircle2,
   ListTodo,
   Search,
-  Filter,
   X,
   MailCheck,
   Radio,
@@ -294,6 +291,28 @@ export default function NotificationsPage() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* Category Pill Filters */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          {[
+            { id: "all", label: "All Categories" },
+            { id: "task", label: "Tasks" },
+            { id: "announcement", label: "Announcements" },
+            { id: "system", label: "System Security" },
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setTypeFilter(cat.id)}
+              className={`px-3 py-1.5 rounded-xl text-[12px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                typeFilter === cat.id
+                  ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-2xs"
+                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
         </div>
 
         {/* Notifications List Stream */}

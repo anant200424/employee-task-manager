@@ -102,7 +102,7 @@ export const OtpInput = ({
   };
 
   return (
-    <div className="flex items-center justify-between gap-2 sm:gap-3">
+    <div className="flex items-center justify-between gap-1.5 xs:gap-2 sm:gap-3 w-full">
       {otpArray.map((digit, index) => (
         <input
           key={index}
@@ -120,16 +120,16 @@ export const OtpInput = ({
           onKeyDown={(e) => handleKeyDown(e, index)}
           onPaste={handlePaste}
           onFocus={() => handleFocus(index)}
-          className={`w-11 h-14 sm:w-12 sm:h-16 text-center text-xl font-bold rounded-xl border-2 outline-none transition-all ${
+          className={`w-9.5 h-12 xs:w-11 xs:h-14 sm:w-12 sm:h-16 text-center text-lg sm:text-xl font-bold rounded-xl border-2 outline-none transition-all ${
             disabled
-              ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed"
+              ? "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed"
               : error
-                ? "bg-red-50/50 border-red-400 text-red-600 focus:border-red-500 focus:ring-4 focus:ring-red-500/20"
+                ? "bg-red-50/50 dark:bg-red-950/30 border-red-400 dark:border-red-500/70 text-red-600 dark:text-red-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/20"
                 : digit
-                  ? "bg-white border-[#4355CC] text-slate-800"
+                  ? "bg-white dark:bg-slate-900 border-[#4355CC] dark:border-indigo-500 text-slate-800 dark:text-white"
                   : activeInput === index
-                    ? "bg-white border-[#4355CC] ring-4 ring-[#4355CC]/10 text-slate-800"
-                    : "bg-white border-slate-300 hover:border-slate-400 text-slate-800"
+                    ? "bg-white dark:bg-slate-900 border-[#4355CC] dark:border-indigo-500 ring-4 ring-[#4355CC]/10 dark:ring-indigo-500/20 text-slate-800 dark:text-white"
+                    : "bg-white dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 text-slate-800 dark:text-white"
           }`}
           aria-label={`Digit ${index + 1}`}
         />

@@ -6,6 +6,10 @@ import { ApiError } from "../utils/ApiError";
 import { sendSuccess } from "../utils/ApiResponse";
 import { AuthRequest } from "../middleware/auth";
 import mongoose from "mongoose";
+import { sendEmail, taskAssignmentEmailTemplate } from "../services/email.service";
+import { recordAuditLog } from "../services/auditService";
+import { resolveSystemRole } from "../middleware/rbac";
+import { emitNewNotification } from "../services/socketService";
 
 /**
  * Generates a unique task code (e.g., TSK-1042)
@@ -41,16 +45,42 @@ export const getTasks = async (
 ): Promise<void> => {
   try {
     const userId = req.user?.id;
-    const { status, priority, search, dateFilter, sort, assignedTo } = req.query;
+    const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
+    const { status, priority, search, dateFilter, sort, assignedTo, department, trash } = req.query;
 
     const query: Record<string, unknown> = {};
 
-    // If employee (non-admin), ONLY show tasks where assignedTo contains user's ID
-    if (userId && req.user?.role !== "admin") {
-      query.assignedTo = new mongoose.Types.ObjectId(userId);
-    } else if (assignedTo && assignedTo !== "all" && typeof assignedTo === "string") {
-      // If admin filters by specific assigned user
-      query.assignedTo = new mongoose.Types.ObjectId(assignedTo);
+    // Soft delete filtering: only show trash to admins if requested
+    if (trash === "true" && (systemRole === "admin" || systemRole === "super_admin" || systemRole === "system_admin")) {
+      query.isDeleted = true;
+    } else {
+      query.isDeleted = { $ne: true };
+    }
+
+    // Role-based resource scoping
+    if (systemRole === "employee") {
+      // Employees ONLY see tasks explicitly assigned to them
+      if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+        query.assignedTo = new mongoose.Types.ObjectId(userId);
+      }
+    } else if (systemRole === "manager") {
+      // Managers see tasks in their department, or created by them, or assigned to them
+      const userDept = req.user?.department || "Engineering";
+      const uId = userId ? new mongoose.Types.ObjectId(userId) : null;
+      query.$or = [
+        { department: userDept },
+        ...(uId ? [{ createdBy: uId }, { assignedTo: uId }] : []),
+      ];
+    } else {
+      // Super Admin and Admin: full organization visibility with filter support
+      if (assignedTo && assignedTo !== "all" && typeof assignedTo === "string") {
+        if (mongoose.Types.ObjectId.isValid(assignedTo)) {
+          query.assignedTo = new mongoose.Types.ObjectId(assignedTo);
+        }
+      }
+      if (department && department !== "all" && typeof department === "string") {
+        query.department = department;
+      }
     }
 
     if (status && status !== "all") {
@@ -75,13 +105,20 @@ export const getTasks = async (
     if (dateFilter && dateFilter !== "all") {
       const now = new Date();
       if (dateFilter === "today") {
-        const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-        const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
         query.dueDate = { $gte: startOfDay, $lte: endOfDay };
       } else if (dateFilter === "week") {
-        const startOfWeek = new Date(now.setHours(0, 0, 0, 0));
+        const startOfWeek = new Date();
+        startOfWeek.setHours(0, 0, 0, 0);
         const endOfWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
         query.dueDate = { $gte: startOfWeek, $lte: endOfWeek };
+      } else if (dateFilter === "month") {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        query.dueDate = { $gte: startOfMonth, $lte: endOfMonth };
       } else if (dateFilter === "overdue") {
         query.dueDate = { $lt: new Date() };
         if (!status || status === "all") {
@@ -103,6 +140,7 @@ export const getTasks = async (
     let tasks = await Task.find(query)
       .populate("assignedTo", "firstName lastName email avatarUrl department role employeeId")
       .populate("createdBy", "firstName lastName email role")
+      .populate("comments.user", "firstName lastName avatarUrl")
       .sort(sortOptions)
       .lean();
 
@@ -216,12 +254,34 @@ export const createTask = async (
       assignedTo,
     } = req.body;
 
-    if (req.user?.role !== "admin") {
-      throw new ApiError(403, "Only administrators can create and assign enterprise tasks.");
+    const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
+    if (!["super_admin", "admin", "manager"].includes(systemRole)) {
+      throw new ApiError(403, "Only administrators and managers can create enterprise tasks.");
     }
 
-    if (!title || String(title).trim().length === 0) {
+    const cleanTitle = String(title || "").trim();
+    if (!cleanTitle) {
       throw new ApiError(400, "Task title is required.");
+    }
+    if (cleanTitle.length < 3) {
+      throw new ApiError(400, "Task title must be at least 3 characters.");
+    }
+    if (cleanTitle.length > 120) {
+      throw new ApiError(400, "Task title cannot exceed 120 characters.");
+    }
+
+    const validPriorities = ["low", "medium", "high", "urgent"];
+    if (priority && !validPriorities.includes(priority)) {
+      throw new ApiError(400, "Priority must be low, medium, high, or urgent.");
+    }
+
+    const validStatuses = ["todo", "in_progress", "review", "completed"];
+    if (status && !validStatuses.includes(status)) {
+      throw new ApiError(400, "Status must be todo, in_progress, review, or completed.");
+    }
+
+    if (description && String(description).length > 3000) {
+      throw new ApiError(400, "Task description cannot exceed 3,000 characters.");
     }
 
     let creator = null;
@@ -229,6 +289,7 @@ export const createTask = async (
       creator = await User.findById(req.user.id);
     }
 
+    const creatorName = creator ? `${creator.firstName} ${creator.lastName}` : "Admin";
     const taskCode = await generateUniqueTaskCode();
 
     let parsedDueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Default 7 days
@@ -236,6 +297,8 @@ export const createTask = async (
       const parsed = new Date(dueDate);
       if (!isNaN(parsed.getTime())) {
         parsedDueDate = parsed;
+      } else {
+        throw new ApiError(400, "Invalid due date format provided.");
       }
     }
 
@@ -254,21 +317,69 @@ export const createTask = async (
         .map((id) => new mongoose.Types.ObjectId(id));
     } else if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
       assignedIds = [new mongoose.Types.ObjectId(assignedTo)];
-    } else if (req.user?.id) {
-      assignedIds = [new mongoose.Types.ObjectId(req.user.id)];
+    }
+
+    if (assignedIds.length === 0) {
+      if (systemRole === "admin" || systemRole === "super_admin" || systemRole === "manager") {
+        throw new ApiError(400, "Please assign the task to at least one employee.");
+      } else if (req.user?.id) {
+        assignedIds = [new mongoose.Types.ObjectId(req.user.id)];
+      } else {
+        throw new ApiError(400, "Please assign the task to at least one employee.");
+      }
+    }
+
+    // Enterprise Safeguard: Non-superadmins cannot assign tasks to Administrator accounts
+    if (systemRole !== "super_admin" && assignedIds.length > 0) {
+      const assignedAdmins = await User.find({
+        _id: { $in: assignedIds },
+        $or: [
+          { systemRole: { $in: ["super_admin", "admin", "system_admin"] } },
+          { role: { $regex: /admin/i } },
+        ],
+      });
+      if (assignedAdmins.length > 0) {
+        throw new ApiError(
+          403,
+          "Enterprise Governance Safeguard: Tasks cannot be assigned to Administrator accounts.",
+        );
+      }
     }
 
     const task = await Task.create({
       taskCode,
-      title: String(title).trim(),
+      title: cleanTitle,
       description: description ? String(description).trim() : "",
       status: status || "in_progress",
       priority: priority || "medium",
       dueDate: parsedDueDate,
       assignedTo: assignedIds,
       createdBy: req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined,
-      department: department || creator?.department || "Engineering",
+      department: (department ? String(department).trim() : "") || creator?.department || "Engineering",
       tags: parsedTags,
+      isDeleted: false,
+      activityLog: [
+        {
+          action: "CREATED",
+          performedBy: req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined,
+          performerName: creatorName,
+          timestamp: new Date(),
+          details: `Task initialized with priority ${priority || "medium"}.`,
+        },
+      ],
+    });
+
+    await recordAuditLog({
+      req,
+      action: "TASK_CREATED",
+      resourceType: "task",
+      resourceId: task._id.toString(),
+      details: {
+        taskCode,
+        title: cleanTitle,
+        priority: priority || "medium",
+        assignedToCount: assignedIds.length,
+      },
     });
 
     const populatedTask = await Task.findById(task._id)
@@ -277,7 +388,6 @@ export const createTask = async (
       .lean();
 
     // Create notifications for each assigned employee
-    const creatorName = creator ? `${creator.firstName} ${creator.lastName}` : "Admin";
     if (assignedIds.length > 0) {
       const notificationsToCreate = assignedIds.map((assigneeId) => ({
         recipient: assigneeId,
@@ -292,9 +402,74 @@ export const createTask = async (
       }));
 
       await Notification.insertMany(notificationsToCreate);
+      notificationsToCreate.forEach((notif) => {
+        emitNewNotification(notif.recipient.toString(), notif);
+      });
+
+      // Dispatch professional task assignment email to all assigned employees via SMTP
+      try {
+        const assignees = await User.find({ _id: { $in: assignedIds } }).select(
+          "firstName lastName email department"
+        );
+        for (const emp of assignees) {
+          if (emp.email) {
+            const recipientName =
+              `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || "Employee";
+            const html = taskAssignmentEmailTemplate({
+              recipientName,
+              assignerName: creatorName,
+              taskCode,
+              taskTitle: cleanTitle,
+              taskDescription: description ? String(description).trim() : "",
+              priority: priority || "medium",
+              dueDate: parsedDueDate,
+              department:
+                (department ? String(department).trim() : "") ||
+                creator?.department ||
+                "Engineering",
+            });
+
+            await sendEmail({
+              to: emp.email,
+              subject: `[Task Assigned] ${taskCode}: ${cleanTitle}`,
+              html,
+            });
+          }
+        }
+      } catch (mailErr) {
+        console.error("[Mailer] Error dispatching task assignment email:", mailErr);
+      }
     }
 
     sendSuccess(res, 201, "Task created successfully.", { task: populatedTask });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Retrieves a single task by ID with full populated assignees and comments.
+ * Scoped by verifyTaskResourceAccess("read").
+ * 
+ * @route  GET /api/tasks/:id
+ */
+export const getTaskById = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const task = await Task.findById(id)
+      .populate("assignedTo", "firstName lastName email avatarUrl department role employeeId")
+      .populate("createdBy", "firstName lastName email role")
+      .populate("comments.user", "firstName lastName email avatarUrl");
+
+    if (!task || task.isDeleted) {
+      throw new ApiError(404, "Task not found.");
+    }
+
+    sendSuccess(res, 200, "Task retrieved successfully.", { task });
   } catch (error) {
     next(error);
   }
@@ -327,23 +502,91 @@ export const updateTask = async (
     } = req.body;
 
     const existingTask = await Task.findById(id);
-    if (!existingTask) {
+    if (!existingTask || existingTask.isDeleted) {
       throw new ApiError(404, "Task not found.");
     }
 
     const updates: Record<string, unknown> = {};
-    const isAdmin = req.user?.role === "admin";
+    const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
+    const isAdmin = systemRole === "admin" || systemRole === "super_admin";
+    const isManager = systemRole === "manager";
+    const isAssignee = (existingTask.assignedTo || []).some(
+      (aId) => aId.toString() === req.user?.id
+    );
 
-    // All authenticated users can update progress status
-    if (status !== undefined) updates.status = status;
+    // IDOR / BOLA Authorization Security Guard
+    if (!isAdmin) {
+      if (isManager) {
+        const isDeptTask =
+          existingTask.department?.toLowerCase() === req.user?.department?.toLowerCase();
+        const isCreator = existingTask.createdBy?.toString() === req.user?.id;
+        if (!isDeptTask && !isCreator && !isAssignee) {
+          throw new ApiError(
+            403,
+            "Managerial scope violation: You can only update tasks within your department or assigned to you."
+          );
+        }
+      } else {
+        // Employee scope: strictly assigned tasks only
+        if (!isAssignee) {
+          throw new ApiError(403, "Access Denied: You are not assigned to this task.");
+        }
+        if (
+          title !== undefined ||
+          priority !== undefined ||
+          dueDate !== undefined ||
+          department !== undefined ||
+          assignedTo !== undefined
+        ) {
+          throw new ApiError(
+            403,
+            "Employees can only update task progress status, comments, or checklist items."
+          );
+        }
+      }
+    }
 
-    // Only Admin can edit title, description, priority, department, dueDate, tags, assignees
-    if (isAdmin) {
-      if (title !== undefined) updates.title = String(title).trim();
-      if (description !== undefined) updates.description = String(description).trim();
-      if (priority !== undefined) updates.priority = priority;
-      if (department !== undefined) updates.department = department;
-      if (dueDate !== undefined) updates.dueDate = new Date(dueDate);
+    // All authorized users can update progress status
+    if (status !== undefined) {
+      const validStatuses = ["todo", "in_progress", "review", "completed"];
+      if (!validStatuses.includes(status)) {
+        throw new ApiError(400, "Status must be todo, in_progress, review, or completed.");
+      }
+      updates.status = status;
+    }
+
+    // Admins and Managers can edit title, description, priority, department, dueDate, tags, assignees
+    if (isAdmin || isManager) {
+      if (title !== undefined) {
+        const cleanTitle = String(title).trim();
+        if (!cleanTitle) throw new ApiError(400, "Task title is required.");
+        if (cleanTitle.length < 3) throw new ApiError(400, "Task title must be at least 3 characters.");
+        if (cleanTitle.length > 120) throw new ApiError(400, "Task title cannot exceed 120 characters.");
+        updates.title = cleanTitle;
+      }
+      if (description !== undefined) {
+        const cleanDesc = String(description).trim();
+        if (cleanDesc.length > 3000) throw new ApiError(400, "Task description cannot exceed 3,000 characters.");
+        updates.description = cleanDesc;
+      }
+      if (priority !== undefined) {
+        const validPriorities = ["low", "medium", "high", "urgent"];
+        if (!validPriorities.includes(priority)) {
+          throw new ApiError(400, "Priority must be low, medium, high, or urgent.");
+        }
+        updates.priority = priority;
+      }
+      if (department !== undefined) {
+        const cleanDept = String(department).trim();
+        if (!cleanDept) throw new ApiError(400, "Department is required.");
+        if (cleanDept.length > 50) throw new ApiError(400, "Department name cannot exceed 50 characters.");
+        updates.department = cleanDept;
+      }
+      if (dueDate !== undefined) {
+        const parsed = new Date(dueDate);
+        if (isNaN(parsed.getTime())) throw new ApiError(400, "Invalid due date format.");
+        updates.dueDate = parsed;
+      }
 
       if (tags !== undefined) {
         if (Array.isArray(tags)) {
@@ -364,6 +607,28 @@ export const updateTask = async (
       } else if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
         assignedIds = [new mongoose.Types.ObjectId(assignedTo)];
       }
+
+      if (assignedIds.length === 0) {
+        throw new ApiError(400, "Please select at least one assignee for this task.");
+      }
+
+      // Enterprise Safeguard: Non-superadmins cannot assign tasks to Administrator accounts
+      if (systemRole !== "super_admin" && assignedIds.length > 0) {
+        const assignedAdmins = await User.find({
+          _id: { $in: assignedIds },
+          $or: [
+            { systemRole: { $in: ["super_admin", "admin", "system_admin"] } },
+            { role: { $regex: /admin/i } },
+          ],
+        });
+        if (assignedAdmins.length > 0) {
+          throw new ApiError(
+            403,
+            "Enterprise Governance Safeguard: Tasks cannot be assigned to Administrator accounts.",
+          );
+        }
+      }
+
       updates.assignedTo = assignedIds;
 
       // Check newly assigned users
@@ -399,6 +664,41 @@ export const updateTask = async (
       }));
 
       await Notification.insertMany(notifications);
+      notifications.forEach((notif) => {
+        emitNewNotification(notif.recipient.toString(), notif);
+      });
+
+      // Dispatch task assignment email to newly assigned employees via SMTP
+      try {
+        const newlyAssignedUsers = await User.find({
+          _id: { $in: newlyAssigned.map((id) => new mongoose.Types.ObjectId(id)) },
+        }).select("firstName lastName email department");
+
+        for (const emp of newlyAssignedUsers) {
+          if (emp.email) {
+            const recipientName =
+              `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || "Employee";
+            const html = taskAssignmentEmailTemplate({
+              recipientName,
+              assignerName: updaterName,
+              taskCode: existingTask.taskCode,
+              taskTitle: updatedTask?.title || existingTask.title,
+              taskDescription: updatedTask?.description || existingTask.description,
+              priority: updatedTask?.priority || existingTask.priority || "medium",
+              dueDate: updatedTask?.dueDate || existingTask.dueDate || new Date(),
+              department: updatedTask?.department || existingTask.department || "Engineering",
+            });
+
+            await sendEmail({
+              to: emp.email,
+              subject: `[Task Assigned] ${existingTask.taskCode}: ${updatedTask?.title || existingTask.title}`,
+              html,
+            });
+          }
+        }
+      } catch (mailErr) {
+        console.error("[Mailer] Error dispatching assignment email for updated task:", mailErr);
+      }
     }
 
     // If task status was updated (e.g. Completed, In Progress, Review), notify admins & creator
@@ -438,6 +738,9 @@ export const updateTask = async (
 
       if (statusNotifications.length > 0) {
         await Notification.insertMany(statusNotifications);
+        statusNotifications.forEach((notif) => {
+          emitNewNotification(notif.recipient.toString(), notif);
+        });
       }
     }
 
@@ -448,10 +751,10 @@ export const updateTask = async (
 };
 
 /**
- * Deletes an existing task by its ID.
+ * Archives (soft-deletes) an existing task by its ID.
  * 
  * @route  DELETE /api/tasks/:id
- * @param  id - The task ID to delete
+ * @param  id - The task ID to archive
  */
 export const deleteTask = async (
   req: AuthRequest,
@@ -459,21 +762,231 @@ export const deleteTask = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    if (req.user?.role !== "admin") {
-      throw new ApiError(403, "Only administrators can delete tasks.");
+    const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
+    if (!["super_admin", "admin"].includes(systemRole)) {
+      throw new ApiError(403, "Only workspace administrators are permitted to archive or delete tasks.");
     }
 
     const { id } = req.params;
-    const task = await Task.findByIdAndDelete(id);
+    const task = await Task.findById(id);
+
+    if (!task || task.isDeleted) {
+      throw new ApiError(404, "Task not found.");
+    }
+
+    const deleter = req.user?.id ? await User.findById(req.user.id) : null;
+    const deleterName = deleter ? `${deleter.firstName} ${deleter.lastName}` : "Administrator";
+
+    task.isDeleted = true;
+    task.deletedAt = new Date();
+    task.deletedBy = req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined;
+    task.activityLog.push({
+      action: "ARCHIVED",
+      performedBy: req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined,
+      performerName: deleterName,
+      timestamp: new Date(),
+      details: "Task archived to trash.",
+    });
+
+    await task.save();
+
+    await recordAuditLog({
+      req,
+      action: "TASK_ARCHIVED",
+      resourceType: "task",
+      resourceId: task._id.toString(),
+      details: { taskCode: task.taskCode, title: task.title },
+    });
+
+    sendSuccess(res, 200, `Task ${task.taskCode} archived successfully.`, { id });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Restores a soft-deleted task from trash.
+ * @route  POST /api/tasks/:id/restore
+ */
+export const restoreTask = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
+    if (!["super_admin", "admin"].includes(systemRole)) {
+      throw new ApiError(403, "Only administrators are permitted to restore archived tasks.");
+    }
+
+    const { id } = req.params;
+    const task = await Task.findById(id);
 
     if (!task) {
       throw new ApiError(404, "Task not found.");
     }
 
-    // Clean up notifications for this task
-    await Notification.deleteMany({ task: id });
+    const restorer = req.user?.id ? await User.findById(req.user.id) : null;
+    const restorerName = restorer ? `${restorer.firstName} ${restorer.lastName}` : "Administrator";
 
-    sendSuccess(res, 200, "Task deleted successfully.", { id });
+    task.isDeleted = false;
+    task.deletedAt = undefined;
+    task.deletedBy = undefined;
+    task.activityLog.push({
+      action: "RESTORED",
+      performedBy: req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined,
+      performerName: restorerName,
+      timestamp: new Date(),
+      details: "Task restored from trash.",
+    });
+
+    await task.save();
+
+    await recordAuditLog({
+      req,
+      action: "TASK_RESTORED",
+      resourceType: "task",
+      resourceId: task._id.toString(),
+      details: { taskCode: task.taskCode, title: task.title },
+    });
+
+    const populated = await Task.findById(task._id)
+      .populate("assignedTo", "firstName lastName email avatarUrl department role employeeId")
+      .populate("createdBy", "firstName lastName email role")
+      .populate("comments.user", "firstName lastName avatarUrl")
+      .lean();
+
+    sendSuccess(res, 200, `Task ${task.taskCode} restored successfully.`, { task: populated });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Appends a comment to a task.
+ * @route  POST /api/tasks/:id/comments
+ */
+export const addTaskComment = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { text } = req.body;
+
+    if (!text || !String(text).trim()) {
+      throw new ApiError(400, "Comment text is required.");
+    }
+
+    const task = await Task.findById(id);
+    if (!task || task.isDeleted) {
+      throw new ApiError(404, "Task not found.");
+    }
+
+    const user = await User.findById(req.user?.id);
+    if (!user) throw new ApiError(401, "User not found.");
+
+    const authorName = `${user.firstName} ${user.lastName}`.trim();
+    const comment = {
+      _id: new mongoose.Types.ObjectId(),
+      user: user._id,
+      authorName,
+      authorAvatar: user.avatarUrl || "",
+      text: String(text).trim(),
+      createdAt: new Date(),
+    };
+
+    task.comments.push(comment as never);
+    task.activityLog.push({
+      action: "COMMENT_ADDED",
+      performedBy: user._id,
+      performerName: authorName,
+      timestamp: new Date(),
+      details: "Comment posted.",
+    });
+
+    await task.save();
+
+    await recordAuditLog({
+      req,
+      action: "TASK_COMMENT_ADDED",
+      resourceType: "task",
+      resourceId: task._id.toString(),
+      details: { taskCode: task.taskCode },
+    });
+
+    sendSuccess(res, 201, "Comment added successfully.", { comment });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Toggles completion status of a checklist item.
+ * @route  PATCH /api/tasks/:id/checklist/:itemId
+ */
+export const toggleChecklistItem = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { id, itemId } = req.params;
+    const task = await Task.findById(id);
+    if (!task || task.isDeleted) {
+      throw new ApiError(404, "Task not found.");
+    }
+
+    const item = task.checklist.find((c) => c._id?.toString() === itemId);
+    if (!item) {
+      throw new ApiError(404, "Checklist item not found.");
+    }
+
+    item.completed = !item.completed;
+    item.completedAt = item.completed ? new Date() : undefined;
+    item.completedBy = item.completed && req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined;
+
+    await task.save();
+
+    sendSuccess(res, 200, "Checklist item updated.", { checklist: task.checklist });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Adds a new item to task checklist.
+ * @route  POST /api/tasks/:id/checklist
+ */
+export const addChecklistItem = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { title } = req.body;
+
+    if (!title || !String(title).trim()) {
+      throw new ApiError(400, "Checklist item title is required.");
+    }
+
+    const task = await Task.findById(id);
+    if (!task || task.isDeleted) {
+      throw new ApiError(404, "Task not found.");
+    }
+
+    const newItem = {
+      _id: new mongoose.Types.ObjectId(),
+      title: String(title).trim(),
+      completed: false,
+    };
+
+    task.checklist.push(newItem as never);
+    await task.save();
+
+    sendSuccess(res, 201, "Checklist item added.", { item: newItem, checklist: task.checklist });
   } catch (error) {
     next(error);
   }

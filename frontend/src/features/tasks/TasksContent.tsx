@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useState, useMemo, useRef, Fragment } from "react";
 import {
   Search,
   Filter,
@@ -11,6 +11,8 @@ import {
   MoreHorizontal,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Plus,
   ArrowUpDown,
   Edit2,
@@ -40,15 +42,14 @@ import {
   CheckSquare,
   CalendarDays,
   TrendingUp,
-  PieChart,
-  ShieldCheck,
-  BarChart2,
+  RotateCcw,
+  FileText,
   AlertTriangle,
   Loader2,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Topbar } from "@/components/dashboard/Topbar";
-import { api } from "@/lib/api";
+import { api, taskApi } from "@/lib/api";
 import { Task, AssignedUser } from "@/types/auth";
 import { NewTaskModal } from "./NewTaskModal";
 import { EditTaskModal } from "./EditTaskModal";
@@ -56,16 +57,29 @@ import { TasksSkeleton } from "@/components/ui/Skeleton";
 import { TaskDetailsModal } from "./TaskDetailsModal";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { exportTasksToCSV, exportTasksToJSON, printTasksReport } from "@/lib/exportUtils";
+import { exportTasksToCSV, exportTasksToExcel, exportTasksToJSON, printTasksReport } from "@/lib/exportUtils";
 import { toast } from "react-hot-toast";
+import { filterFuzzy } from "@/lib/searchUtils";
 
 type ActiveTab = "list" | "summary" | "board" | "timeline" | "reports";
 
 export const TasksContent = () => {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const { t, language } = useLanguage();
-  const isAdmin = user?.role === "admin";
   const searchParams = useSearchParams();
+
+  const systemRole = useMemo(() => {
+    if (user?.systemRole) return user.systemRole;
+    if (user?.role === "admin") return "admin";
+    if (user?.role?.toLowerCase().includes("manager")) return "manager";
+    return "employee";
+  }, [user]);
+
+  const isSuperAdmin = systemRole === "super_admin";
+  const isSystemAdmin = systemRole === "system_admin" || isSuperAdmin;
+  const isAdmin = systemRole === "admin" || isSystemAdmin;
+  const isManager = systemRole === "manager";
+  const canCreateTask = isAdmin || isManager;
 
   // Primary State
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -84,6 +98,8 @@ export const TasksContent = () => {
   const [sortBy, setSortBy] = useState<string>("latest");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(10);
+  const [timelinePage, setTimelinePage] = useState(1);
+  const [timelineItemsPerPage, setTimelineItemsPerPage] = useState<number>(10);
 
   // Group collapse state for grouped tables
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -112,6 +128,29 @@ export const TasksContent = () => {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Fullscreen effect: lock scroll, hide sidebar via body class, listen for Esc key
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.classList.add("tasks-fullscreen");
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setIsFullscreen(false);
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.body.classList.remove("tasks-fullscreen");
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    } else {
+      document.body.classList.remove("tasks-fullscreen");
+    }
+  }, [isFullscreen]);
+
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
+  };
+
   // Selected row checkboxes
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
 
@@ -126,6 +165,29 @@ export const TasksContent = () => {
       setStatusFilter(statusParam);
     }
   }, [searchParams]);
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() !== "" ||
+    statusFilter !== "all" ||
+    priorityFilter !== "all" ||
+    dateFilter !== "all" ||
+    departmentFilter !== "all" ||
+    onlyMyTasks ||
+    groupBy !== "none" ||
+    sortBy !== "latest"
+  );
+
+  const resetAllFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setPriorityFilter("all");
+    setDateFilter("all");
+    setDepartmentFilter("all");
+    setOnlyMyTasks(false);
+    setGroupBy("none");
+    setSortBy("latest");
+    toast.success("Filters reset to default");
+  };
 
   // Close ALL dropdowns and popups on clicking anywhere outside
   useEffect(() => {
@@ -151,27 +213,53 @@ export const TasksContent = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Hydrate initial tasks from cache if available so UI never flashes empty
   useEffect(() => {
-    fetchTasks();
-  }, [dateFilter, sortBy]);
+    try {
+      const saved = localStorage.getItem("nexus_cached_tasks");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTasks(parsed);
+          setLoading(false);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && (isAuthenticated || user)) {
+      fetchTasks();
+    }
+  }, [authLoading, isAuthenticated, dateFilter, sortBy, statusFilter]);
 
   const fetchTasks = async (showToast = false) => {
     try {
-      if (!showToast) setLoading(true);
-      else setRefreshing(true);
+      if (!showToast && tasks.length === 0) setLoading(true);
+      else if (showToast) setRefreshing(true);
 
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = {
+        _t: Date.now().toString(),
+      };
       if (dateFilter !== "all") params.dateFilter = dateFilter;
       if (sortBy) params.sort = sortBy;
+      if (statusFilter === "trash") params.trash = "true";
 
-      const res = await api.get("/tasks", { params });
+      const [res] = await Promise.all([
+        api.get("/tasks", { params }),
+        new Promise((resolve) => setTimeout(resolve, showToast ? 600 : 0)),
+      ]);
+
       if (res.data?.data?.tasks) {
         setTasks(res.data.data.tasks);
-        if (showToast) toast.success("Tasks refreshed!");
+        try {
+          localStorage.setItem("nexus_cached_tasks", JSON.stringify(res.data.data.tasks));
+        } catch {}
+        if (showToast) toast.success(`Refreshed! Synchronized ${res.data.data.tasks.length} live tasks.`);
       }
     } catch (err) {
       console.error("Failed to fetch tasks", err);
-      toast.error("Failed to load tasks");
+      if (showToast) toast.error("Failed to load tasks");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -202,19 +290,11 @@ export const TasksContent = () => {
     return Array.from(set);
   }, [tasks]);
 
-  // Filtered tasks list
+  // Filtered tasks list with smart typo-tolerant fuzzy search
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch =
-        !q ||
-        task.title?.toLowerCase().includes(q) ||
-        task.description?.toLowerCase().includes(q) ||
-        task.taskCode?.toLowerCase().includes(q) ||
-        task.department?.toLowerCase().includes(q);
-
+    let list = tasks.filter((task) => {
       let matchesStatus = true;
-      if (statusFilter === "all") {
+      if (statusFilter === "all" || statusFilter === "trash") {
         matchesStatus = true;
       } else if (statusFilter === "overdue") {
         matchesStatus = Boolean(
@@ -235,8 +315,19 @@ export const TasksContent = () => {
         matchesMyTasks = assignees.some((a) => (typeof a === "string" ? a === user._id : a._id === user._id));
       }
 
-      return matchesSearch && matchesStatus && matchesPriority && matchesDept && matchesMyTasks;
+      return matchesStatus && matchesPriority && matchesDept && matchesMyTasks;
     });
+
+    if (searchQuery.trim()) {
+      list = filterFuzzy(list, searchQuery, (t) => [
+        t.title,
+        t.description,
+        t.taskCode,
+        t.department,
+      ]);
+    }
+
+    return list;
   }, [tasks, searchQuery, statusFilter, priorityFilter, departmentFilter, onlyMyTasks, user]);
 
   // Pagination
@@ -252,45 +343,93 @@ export const TasksContent = () => {
     setCurrentPage(1);
   }, [searchQuery, statusFilter, priorityFilter, dateFilter, departmentFilter, onlyMyTasks, sortBy, groupBy]);
 
-  // Quick update task status directly from Jira status pill
+  // Timeline Pagination
+  const totalTimelinePages = Math.ceil(filteredTasks.length / timelineItemsPerPage) || 1;
+  const paginatedTimelineTasks = useMemo(() => {
+    return filteredTasks.slice(
+      (timelinePage - 1) * timelineItemsPerPage,
+      timelinePage * timelineItemsPerPage,
+    );
+  }, [filteredTasks, timelinePage, timelineItemsPerPage]);
+
+  useEffect(() => {
+    setTimelinePage(1);
+  }, [searchQuery, statusFilter, priorityFilter, dateFilter, departmentFilter, onlyMyTasks, sortBy, groupBy, timelineItemsPerPage]);
+
+  // Quick update task status directly from Jira status pill with OPTIMISTIC UI
   const handleQuickStatusChange = async (taskId: string, newStatus: string) => {
+    const previousTasks = tasks;
+    // 1. Instantly update UI for hyper-fast response
+    setTasks((prev) =>
+      prev.map((t) => (t._id === taskId ? { ...t, status: newStatus as any } : t)),
+    );
+    toast.success("Task status updated!", { id: `status-${taskId}` });
+
+    // 2. Persist to server in background
     try {
       await api.patch(`/tasks/${taskId}`, { status: newStatus });
-      setTasks((prev) =>
-        prev.map((t) => (t._id === taskId ? { ...t, status: newStatus as any } : t)),
-      );
-      toast.success("Task status updated!");
     } catch (err: any) {
+      // Rollback optimistic update on failure
+      setTasks(previousTasks);
       toast.error(err.response?.data?.message || "Failed to update status");
     }
   };
 
-  // Quick update priority
+  // Quick update priority with OPTIMISTIC UI
   const handleQuickPriorityChange = async (taskId: string, newPriority: string) => {
+    const previousTasks = tasks;
+    // 1. Instantly update UI
+    setTasks((prev) =>
+      prev.map((t) => (t._id === taskId ? { ...t, priority: newPriority as any } : t)),
+    );
+    toast.success("Task priority updated!", { id: `priority-${taskId}` });
+    setActiveMenuTaskId(null);
+
+    // 2. Persist in background
     try {
       await api.patch(`/tasks/${taskId}`, { priority: newPriority });
-      setTasks((prev) =>
-        prev.map((t) => (t._id === taskId ? { ...t, priority: newPriority as any } : t)),
-      );
-      toast.success("Task priority updated!");
-      setActiveMenuTaskId(null);
     } catch (err: any) {
+      // Rollback optimistic update
+      setTasks(previousTasks);
       toast.error(err.response?.data?.message || "Failed to update priority");
     }
   };
 
-  // Delete Task Handler
+  // Delete Task Handler with OPTIMISTIC UI
   const handleDeleteTask = async (task: Task) => {
     if (!window.confirm(`Are you sure you want to delete task ${task.taskCode} ("${task.title}")?`)) {
       return;
     }
+    const previousTasks = tasks;
+    // 1. Instantly remove from view
+    setTasks((prev) => prev.filter((t) => t._id !== task._id));
+    toast.success(`Task ${task.taskCode} deleted successfully.`);
+    setActiveMenuTaskId(null);
+
+    // 2. Persist in background
     try {
       await api.delete(`/tasks/${task._id}`);
-      setTasks((prev) => prev.filter((t) => t._id !== task._id));
-      toast.success(`Task ${task.taskCode} deleted successfully.`);
-      setActiveMenuTaskId(null);
     } catch (err: any) {
+      // Rollback
+      setTasks(previousTasks);
       toast.error(err.response?.data?.message || "Failed to delete task");
+    }
+  };
+
+  // Restore Soft-Deleted Task Handler with OPTIMISTIC UI
+  const handleRestoreTask = async (task: Task) => {
+    const previousTasks = tasks;
+    // 1. Instantly remove from trash view
+    setTasks((prev) => prev.filter((t) => t._id !== task._id));
+    toast.success(`Task ${task.taskCode} restored successfully!`);
+    setActiveMenuTaskId(null);
+
+    // 2. Persist in background
+    try {
+      await taskApi.restoreTask(task._id);
+    } catch (err: any) {
+      setTasks(previousTasks);
+      toast.error(err.response?.data?.message || "Failed to restore task");
     }
   };
 
@@ -401,41 +540,54 @@ export const TasksContent = () => {
 
   // Jira Status Dropdown Pill
   const renderJiraStatusPill = (task: Task) => {
-    const statusStyles: Record<string, { bg: string; text: string; border: string; label: string }> = {
+    const statusStyles: Record<string, { bg: string; text: string; border: string; label: string; pillClass: string }> = {
       todo: {
-        bg: "bg-[#DFE1E6]/70 dark:bg-slate-700/80 hover:bg-[#DFE1E6]",
-        text: "text-[#42526E] dark:text-slate-200",
-        border: "border-slate-300 dark:border-slate-600",
+        bg: "bg-[#DFE1E6]/70 dark:bg-[#182030] hover:bg-[#DFE1E6]",
+        text: "text-[#42526E] dark:text-[#CBD5E1]",
+        border: "border-slate-300 dark:border-slate-600/40",
         label: t("status_todo"),
+        pillClass: "status-pill-todo",
       },
       in_progress: {
-        bg: "bg-[#DEEBFF] dark:bg-sky-950/60 hover:bg-[#B3D4FF]",
-        text: "text-[#0052CC] dark:text-sky-300",
-        border: "border-sky-300 dark:border-sky-700",
+        bg: "bg-[#DEEBFF] dark:bg-[#0C2444] hover:bg-[#B3D4FF]",
+        text: "text-[#0052CC] dark:text-[#38BDF8]",
+        border: "border-sky-300 dark:border-sky-500/40",
         label: t("status_in_progress"),
+        pillClass: "status-pill-in_progress",
       },
       review: {
-        bg: "bg-[#EAE6FF] dark:bg-purple-950/60 hover:bg-[#C0B6F2]",
-        text: "text-[#403294] dark:text-purple-300",
-        border: "border-purple-300 dark:border-purple-700",
+        bg: "bg-[#EAE6FF] dark:bg-[#251347] hover:bg-[#C0B6F2]",
+        text: "text-[#403294] dark:text-[#C084FC]",
+        border: "border-purple-300 dark:border-purple-500/40",
         label: t("status_review"),
+        pillClass: "status-pill-review",
       },
       completed: {
-        bg: "bg-[#E3FCEF] dark:bg-emerald-950/60 hover:bg-[#ABF5D1]",
-        text: "text-[#006644] dark:text-emerald-300",
-        border: "border-emerald-300 dark:border-emerald-700",
+        bg: "bg-[#E3FCEF] dark:bg-[#063323] hover:bg-[#ABF5D1]",
+        text: "text-[#006644] dark:text-[#34D399]",
+        border: "border-emerald-300 dark:border-emerald-500/40",
         label: t("status_done"),
+        pillClass: "status-pill-completed",
       },
     };
 
     const cur = statusStyles[task.status] || statusStyles.todo;
 
     return (
-      <div className="relative inline-flex items-center">
+      <div
+        className="relative inline-flex items-center"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <select
           value={task.status}
-          onChange={(e) => handleQuickStatusChange(task._id, e.target.value)}
-          className={`appearance-none px-2.5 py-1 pr-6 rounded-[5px] text-[11px] font-extrabold tracking-wide uppercase cursor-pointer border outline-none transition-all shadow-xs ${cur.bg} ${cur.text} ${cur.border}`}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            handleQuickStatusChange(task._id, e.target.value);
+          }}
+          className={`status-pill ${cur.pillClass} appearance-none px-2.5 py-1 pr-6 rounded-[5px] text-[11px] font-extrabold tracking-wide uppercase cursor-pointer border outline-none transition-all shadow-xs ${cur.bg} ${cur.text} ${cur.border}`}
         >
           <option value="todo">{t("status_todo")}</option>
           <option value="in_progress">{t("status_in_progress")}</option>
@@ -452,29 +604,29 @@ export const TasksContent = () => {
     switch (priority) {
       case "urgent":
         return (
-          <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-red-600 dark:text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-red-600 dark:text-rose-400">
+            <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(244,63,94,0.6)] animate-pulse" />
             <span>{t("priority_urgent")}</span>
           </div>
         );
       case "high":
         return (
-          <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-orange-600 dark:text-orange-400">
-            <span className="w-2 h-2 rounded-full bg-orange-500" />
+          <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-orange-600 dark:text-amber-400">
+            <span className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]" />
             <span>{t("priority_high")}</span>
           </div>
         );
       case "medium":
         return (
-          <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-blue-600 dark:text-blue-400">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
+          <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-blue-600 dark:text-sky-400">
+            <span className="w-2 h-2 rounded-full bg-blue-500 dark:bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.5)]" />
             <span>{t("priority_medium")}</span>
           </div>
         );
       case "low":
         return (
           <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-slate-500 dark:text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-slate-400" />
+            <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500" />
             <span>{t("priority_low")}</span>
           </div>
         );
@@ -578,130 +730,282 @@ export const TasksContent = () => {
 
   return (
     <div
-      className={`flex-1 flex flex-col min-h-screen bg-[#FAFBFC] dark:bg-[#0B0F17] transition-colors duration-300 ${
-        isFullscreen ? "fixed inset-0 z-50 overflow-y-auto" : ""
+      className={`flex-1 flex flex-col min-h-screen bg-[#FAFBFC] dark:bg-[#090D16] transition-colors duration-300 ${
+        isFullscreen ? "fixed inset-0 z-[80] h-screen w-screen overflow-hidden" : ""
       }`}
     >
-      <Topbar
-        title="Tasks Workspace"
-        subtitle={
-          isAdmin
-            ? "Manage and assign enterprise tasks across teams and employees."
-            : "Track and complete your assigned tasks and deliverables."
-        }
-        icon={<FolderKanban className="w-5 h-5 text-[#5B5FEF]" />}
-      />
+      {!isFullscreen && (
+        <Topbar
+          title="Tasks Workspace"
+          subtitle={
+            isAdmin
+              ? "Manage and assign enterprise tasks across teams and employees."
+              : "Track and complete your assigned tasks and deliverables."
+          }
+          icon={<FolderKanban className="w-5 h-5 text-[#5B5FEF]" />}
+        />
+      )}
 
-      <main className="flex-1 p-4 lg:p-6 overflow-y-auto custom-scrollbar space-y-4">
-        <div className="max-w-[1600px] mx-auto space-y-4">
-          {/* =========================================================================
-              1. TOP SPACE / PROJECT HEADER (Jira Image 2 Style)
-             ========================================================================= */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-200/80 dark:border-slate-800/80">
+      {/* =========================================================================
+          DEDICATED FULLSCREEN ZEN WORKSPACE HEADER
+         ========================================================================= */}
+      {isFullscreen && (
+        <div className="bg-white dark:bg-[#101623] border-b border-slate-200/90 dark:border-slate-800 px-4 lg:px-6 py-2.5 flex items-center justify-between shrink-0 shadow-xs z-30">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#5B5FEF] to-[#4338CA] text-white flex items-center justify-center font-black text-xs shadow-xs">
+              ⚡
+            </div>
             <div>
-              {/* Space Breadcrumb */}
-              <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
                 <span>{t("spaces")}</span>
                 <span>/</span>
-                <span className="text-[#5B5FEF] font-extrabold flex items-center gap-1">
-                  <FolderKanban className="w-3.5 h-3.5" /> {t("empsphere_workspaces")}
+                <span>Engineering & Ops</span>
+                <span>/</span>
+                <span className="text-[#5B5FEF] font-extrabold">{isAdmin ? "My Software Team" : "My Assigned Work"}</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-[17px] sm:text-[18px] font-black text-slate-900 dark:text-white tracking-tight">
+                  {isAdmin ? t("tasks_workspace", "Tasks Workspace") : t("my_tasks_deliverables", "My Assigned Deliverables")}
+                </h1>
+                <span className="text-[11px] font-extrabold text-[#0052CC] dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200/70 dark:border-blue-800/50 px-2 py-0.5 rounded-full">
+                  {filteredTasks.length} {t("tasks_label")}
+                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-[#5B5FEF] dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/50">
+                  <Maximize2 className="w-3 h-3" /> Fullscreen View
                 </span>
               </div>
-
-              {/* Title & Team Badge */}
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#5B5FEF] to-[#4338CA] text-white flex items-center justify-center font-black text-xs shadow-xs">
-                  ⚡
-                </div>
-                <h1 className="text-[20px] sm:text-[22px] font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                  {isAdmin ? "My Software Team" : "My Assigned Work"}
-                  <span className="text-[12px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-                    {tasks.length} {t("tasks_label")}
-                  </span>
-                </h1>
-              </div>
-            </div>
-
-            {/* Quick Header Actions */}
-            <div className="flex items-center gap-2">
-              {/* Refresh Button */}
-              <button
-                onClick={() => fetchTasks(true)}
-                disabled={refreshing}
-                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
-                title={t("refresh")}
-              >
-                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#5B5FEF]" : ""}`} />
-              </button>
-
-              {/* Export Dropdown */}
-              <div ref={exportRef} className="relative">
-                <button
-                  onClick={() => setIsExportOpen(!isExportOpen)}
-                  className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-[13px] font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  title={t("export")}
-                >
-                  <Download className="w-4 h-4 text-[#5B5FEF]" />
-                  <span>{t("export")}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                </button>
-                {isExportOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 py-1.5 z-50 animate-in fade-in zoom-in-95">
-                    <button
-                      onClick={() => {
-                        exportTasksToCSV(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
-                        setIsExportOpen(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
-                    >
-                      <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
-                      <span>Export to CSV (Excel)</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        exportTasksToJSON(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
-                        setIsExportOpen(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
-                    >
-                      <FileCode className="w-4 h-4 text-blue-500 shrink-0" />
-                      <span>Export to JSON</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        printTasksReport(filteredTasks, isAdmin ? "Enterprise Tasks Summary Report" : "My Assigned Tasks Report");
-                        setIsExportOpen(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer border-t border-slate-100 dark:border-slate-800"
-                    >
-                      <Printer className="w-4 h-4 text-purple-500 shrink-0" />
-                      <span>Print / Save PDF</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Fullscreen Toggle */}
-              <button
-                onClick={() => setIsFullscreen(!isFullscreen)}
-                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
-                title={isFullscreen ? "Exit Fullscreen" : "Fullscreen View"}
-              >
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-
-              {/* Create Task Button */}
-              {isAdmin && (
-                <button
-                  onClick={() => setIsNewTaskModalOpen(true)}
-                  className="bg-[#0052CC] hover:bg-[#0065FF] text-white px-4 py-2 rounded-xl text-[13px] font-black shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{t("create")}</span>
-                </button>
-              )}
             </div>
           </div>
+
+          <div className="flex items-center gap-2">
+            {/* Refresh Button */}
+            <button
+              onClick={() => fetchTasks(true)}
+              disabled={refreshing}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+              title={t("refresh")}
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#5B5FEF]" : ""}`} />
+            </button>
+
+            {/* Export Dropdown in Fullscreen */}
+            <div ref={exportRef} className="relative">
+              <button
+                onClick={() => setIsExportOpen(!isExportOpen)}
+                className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-[13px] font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                title={t("export")}
+              >
+                <Download className="w-4 h-4 text-[#5B5FEF]" />
+                <span className="hidden sm:inline">{t("export")}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+              {isExportOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 py-1.5 z-50 animate-in fade-in zoom-in-95">
+                  <button
+                    onClick={() => {
+                      exportTasksToExcel(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
+                      setIsExportOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Export to Excel (.xls)</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      exportTasksToCSV(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
+                      setIsExportOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>Export to CSV</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      exportTasksToJSON(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
+                      setIsExportOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <FileCode className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>Export to JSON</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      printTasksReport(filteredTasks, isAdmin ? "Enterprise Tasks Summary Report" : "My Assigned Tasks Report");
+                      setIsExportOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                  >
+                    <Printer className="w-4 h-4 text-purple-500 shrink-0" />
+                    <span>Print / Save PDF</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Create Task Button in Fullscreen */}
+            {canCreateTask && (
+              <button
+                onClick={() => setIsNewTaskModalOpen(true)}
+                className="bg-[#0052CC] hover:bg-[#0065FF] text-white px-3.5 py-2 rounded-xl text-[13px] font-black shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">{t("create")}</span>
+              </button>
+            )}
+
+            {/* Prominent Exit Fullscreen Button */}
+            <button
+              onClick={toggleFullscreen}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-[12.5px] font-black shadow-xs transition-all active:scale-95 cursor-pointer"
+              title="Exit Fullscreen (Esc)"
+            >
+              <Minimize2 className="w-4 h-4" />
+              <span>Exit Fullscreen</span>
+              <kbd className="hidden sm:inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-800 dark:bg-slate-200 text-slate-300 dark:text-slate-700 font-mono">
+                Esc
+              </kbd>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main
+        className={
+          isFullscreen
+            ? "flex-1 min-h-0 flex flex-col p-3 lg:p-4 overflow-hidden space-y-3 w-full"
+            : "flex-1 p-4 lg:p-6 pb-28 lg:pb-32 overflow-y-auto custom-scrollbar space-y-4"
+        }
+      >
+        <div
+          className={
+            isFullscreen
+              ? "flex-1 min-h-0 flex flex-col space-y-3 w-full"
+              : "max-w-[1600px] mx-auto space-y-4"
+          }
+        >
+          {/* =========================================================================
+              1. TOP SPACE / PROJECT HEADER (Jira Image 2 Style - Only in Normal Mode)
+             ========================================================================= */}
+          {!isFullscreen && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-200/80 dark:border-slate-800/80">
+              <div>
+                {/* Space Breadcrumb */}
+                <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                  <span>{t("spaces")}</span>
+                  <span>/</span>
+                  <span className="text-[#5B5FEF] font-extrabold flex items-center gap-1">
+                    <FolderKanban className="w-3.5 h-3.5" /> {t("empsphere_workspaces")}
+                  </span>
+                </div>
+
+                {/* Title & Team Badge */}
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#5B5FEF] to-[#4338CA] text-white flex items-center justify-center font-black text-xs shadow-xs">
+                    ⚡
+                  </div>
+                  <h1 className="text-[20px] sm:text-[22px] font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                    {isAdmin ? "My Software Team" : "My Assigned Work"}
+                    <span className="text-[12px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                      {tasks.length} {t("tasks_label")}
+                    </span>
+                  </h1>
+                </div>
+              </div>
+
+              {/* Quick Header Actions */}
+              <div className="flex items-center gap-2">
+                {/* Refresh Button */}
+                <button
+                  onClick={() => fetchTasks(true)}
+                  disabled={refreshing}
+                  className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+                  title={t("refresh")}
+                >
+                  <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#5B5FEF]" : ""}`} />
+                </button>
+
+                {/* Export Dropdown */}
+                <div ref={exportRef} className="relative">
+                  <button
+                    onClick={() => setIsExportOpen(!isExportOpen)}
+                    className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-[13px] font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    title={t("export")}
+                  >
+                    <Download className="w-4 h-4 text-[#5B5FEF]" />
+                    <span>{t("export")}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                  {isExportOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 py-1.5 z-50 animate-in fade-in zoom-in-95">
+                      <button
+                        onClick={() => {
+                          exportTasksToExcel(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
+                          setIsExportOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Export to Excel (.xls)</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportTasksToCSV(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
+                          setIsExportOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 text-blue-500 shrink-0" />
+                        <span>Export to CSV</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportTasksToJSON(filteredTasks, isAdmin ? "EmpSphere_Enterprise_Tasks" : "EmpSphere_My_Tasks");
+                          setIsExportOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <FileCode className="w-4 h-4 text-blue-500 shrink-0" />
+                        <span>Export to JSON</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          printTasksReport(filteredTasks, isAdmin ? "Enterprise Tasks Summary Report" : "My Assigned Tasks Report");
+                          setIsExportOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[13px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2.5 cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <Printer className="w-4 h-4 text-purple-500 shrink-0" />
+                        <span>Print / Save PDF</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Fullscreen Toggle */}
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+                  title="Fullscreen View"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+
+                {/* Create Task Button */}
+                {canCreateTask && (
+                  <button
+                    onClick={() => setIsNewTaskModalOpen(true)}
+                    className="bg-[#0052CC] hover:bg-[#0065FF] text-white px-4 py-2 rounded-xl text-[13px] font-black shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{t("create")}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* =========================================================================
               2. HORIZONTAL TAB BAR (Image 2 Style: Summary, List, Board, Timeline, Reports)
@@ -749,20 +1053,21 @@ export const TasksContent = () => {
              ========================================================================= */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs">
             <div className="flex flex-wrap items-center gap-2.5 flex-1">
-              {/* Search Work */}
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              {/* Search Work - Expanded and Prominent */}
+              <div className="relative w-full sm:w-80 md:w-96 lg:w-[380px] transition-all">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   placeholder={t("search_work")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-8 py-1.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-[13px] font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052CC] focus:ring-1 focus:ring-[#0052CC]"
+                  className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-[13px] font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052CC] focus:ring-2 focus:ring-[#0052CC]/15 shadow-2xs transition-all"
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    title="Clear search"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -784,7 +1089,10 @@ export const TasksContent = () => {
                 </div>
                 <span>{t("only_my_tasks")}</span>
               </button>
+            </div>
 
+            {/* Right Controls: Filters, Group By, Sort By, and Reset Filters */}
+            <div className="flex flex-wrap items-center gap-2">
               {/* Filter Dropdown */}
               <div ref={filterRef} className="relative">
                 <button
@@ -819,6 +1127,7 @@ export const TasksContent = () => {
                           { id: "review", label: t("status_review") },
                           { id: "completed", label: t("status_done") },
                           { id: "overdue", label: t("status_overdue") },
+                          ...(isAdmin ? [{ id: "trash", label: "Trash / Recovery" }] : []),
                         ].map((s) => (
                           <button
                             key={s.id}
@@ -1038,14 +1347,23 @@ export const TasksContent = () => {
                   </div>
                 )}
               </div>
-            </div>
 
-            {/* Quick Stats Pill */}
-            <div className="hidden lg:flex items-center gap-2 text-[12px] font-bold text-slate-500 pr-2">
-              <span>
-                {t("showing")} <strong className="text-slate-900 dark:text-white">{filteredTasks.length}</strong> {t("of")}{" "}
-                <strong className="text-slate-900 dark:text-white">{tasks.length}</strong> {t("tasks_label")}
-              </span>
+              {/* Vertical Divider */}
+              <div className="hidden sm:block h-6 w-px bg-slate-200 dark:bg-slate-750 mx-0.5" />
+
+              {/* Reset Filters Button */}
+              <button
+                onClick={resetAllFilters}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[12.5px] font-bold transition-all cursor-pointer ${
+                  hasActiveFilters
+                    ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 shadow-2xs"
+                    : "bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-800"
+                }`}
+                title="Reset all search queries, filters, group by, and sorting"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Filters</span>
+              </button>
             </div>
           </div>
 
@@ -1055,16 +1373,16 @@ export const TasksContent = () => {
 
           {/* TAB 1: SUMMARY TAB */}
           {activeTab === "summary" && (
-            <div className="space-y-4">
+            <div className={`space-y-4 ${isFullscreen ? "flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1" : ""}`}>
               {/* 6 Metric Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: "Total Tasks", value: metrics.total, id: "all", icon: CheckSquare, color: "text-[#0052CC]", bg: "bg-[#0052CC]/10" },
-                  { label: "To Do", value: metrics.pending, id: "todo", icon: Clock, color: "text-[#42526E]", bg: "bg-slate-100 dark:bg-slate-800" },
-                  { label: "In Progress", value: metrics.inProgress, id: "in_progress", icon: PlayCircle, color: "text-[#0052CC]", bg: "bg-sky-100 dark:bg-sky-950/40" },
-                  { label: "In Review", value: metrics.inReview, id: "review", icon: AlertCircle, color: "text-[#403294]", bg: "bg-purple-100 dark:bg-purple-950/40" },
-                  { label: "Done", value: metrics.completed, id: "completed", icon: CheckCircle2, color: "text-[#006644]", bg: "bg-emerald-100 dark:bg-emerald-950/40" },
-                  { label: "Overdue", value: metrics.overdue, id: "overdue", icon: Flame, color: "text-red-500", bg: "bg-red-100 dark:bg-red-950/40" },
+                  { label: "Total Tasks", value: metrics.total, id: "all", icon: CheckSquare, color: "text-[#5B5FEF] dark:text-[#818CF8]", bg: "bg-[#5B5FEF]/10 dark:bg-[#5B5FEF]/20" },
+                  { label: "To Do", value: metrics.pending, id: "todo", icon: Clock, color: "text-[#42526E] dark:text-slate-300", bg: "bg-slate-100 dark:bg-[#151D2E]" },
+                  { label: "In Progress", value: metrics.inProgress, id: "in_progress", icon: PlayCircle, color: "text-[#0052CC] dark:text-sky-400", bg: "bg-sky-100 dark:bg-sky-500/15" },
+                  { label: "In Review", value: metrics.inReview, id: "review", icon: AlertCircle, color: "text-[#403294] dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-500/15" },
+                  { label: "Done", value: metrics.completed, id: "completed", icon: CheckCircle2, color: "text-[#006644] dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-500/15" },
+                  { label: "Overdue", value: metrics.overdue, id: "overdue", icon: Flame, color: "text-red-500 dark:text-rose-400", bg: "bg-red-100 dark:bg-rose-500/15" },
                 ].map((card) => {
                   const Icon = card.icon;
                   const isActive = statusFilter === card.id;
@@ -1077,8 +1395,8 @@ export const TasksContent = () => {
                       }}
                       className={`p-4 rounded-2xl border cursor-pointer transition-all hover:-translate-y-1 ${
                         isActive
-                          ? "border-[#0052CC] bg-[#DEEBFF]/30 dark:bg-sky-950/30 shadow-md ring-2 ring-[#0052CC]"
-                          : "border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:shadow-md"
+                          ? "border-[#5B5FEF] bg-[#DEEBFF]/30 dark:bg-[#5B5FEF]/20 shadow-md ring-2 ring-[#5B5FEF]"
+                          : "border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#101623] shadow-xs hover:shadow-md"
                       }`}
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -1165,7 +1483,7 @@ export const TasksContent = () => {
                     <Sparkles className="w-4 h-4 text-[#5B5FEF]" /> Workspace Actions
                   </h4>
                   <div className="space-y-2">
-                    {isAdmin && (
+                    {canCreateTask && (
                       <button
                         onClick={() => setIsNewTaskModalOpen(true)}
                         className="w-full py-2 px-3 rounded-xl bg-[#0052CC] hover:bg-[#0065FF] text-white text-[13px] font-bold transition-all text-left flex items-center justify-between"
@@ -1196,12 +1514,12 @@ export const TasksContent = () => {
 
           {/* TAB 2: BOARD / KANBAN TAB */}
           {activeTab === "board" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 ${isFullscreen ? "flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1" : ""}`}>
               {[
-                { id: "todo", title: "TO DO", border: "border-slate-300 dark:border-slate-700", bg: "bg-slate-50 dark:bg-slate-900" },
-                { id: "in_progress", title: "IN PROGRESS", border: "border-sky-300 dark:border-sky-800", bg: "bg-sky-50/50 dark:bg-sky-950/20" },
-                { id: "review", title: "IN REVIEW", border: "border-purple-300 dark:border-purple-800", bg: "bg-purple-50/50 dark:bg-purple-950/20" },
-                { id: "completed", title: "DONE", border: "border-emerald-300 dark:border-emerald-800", bg: "bg-emerald-50/50 dark:bg-emerald-950/20" },
+                { id: "todo", title: "TO DO", border: "border-slate-300 dark:border-[#1C2638]", bg: "bg-slate-50 dark:bg-[#101522]" },
+                { id: "in_progress", title: "IN PROGRESS", border: "border-sky-300 dark:border-sky-500/30", bg: "bg-sky-50/50 dark:bg-[#0B1B30]/60" },
+                { id: "review", title: "IN REVIEW", border: "border-purple-300 dark:border-purple-500/30", bg: "bg-purple-50/50 dark:bg-[#1F1038]/60" },
+                { id: "completed", title: "DONE", border: "border-emerald-300 dark:border-emerald-500/30", bg: "bg-emerald-50/50 dark:bg-[#08261B]/60" },
               ].map((col) => {
                 const columnTasks = filteredTasks.filter((t) => t.status === col.id);
                 return (
@@ -1210,11 +1528,11 @@ export const TasksContent = () => {
                     className={`rounded-2xl border ${col.border} ${col.bg} p-3 flex flex-col h-[75vh]`}
                   >
                     {/* Column Header */}
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/80 dark:border-slate-800">
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/80 dark:border-[#1C2638]">
                       <h4 className="text-[12px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                         {col.title}
                       </h4>
-                      <span className="text-[11px] font-black bg-white dark:bg-slate-800 px-2 py-0.5 rounded-full text-slate-500 shadow-xs">
+                      <span className="text-[11px] font-black bg-white dark:bg-[#151D2E] px-2 py-0.5 rounded-full text-slate-500 dark:text-slate-400 shadow-xs">
                         {columnTasks.length}
                       </span>
                     </div>
@@ -1232,10 +1550,10 @@ export const TasksContent = () => {
                               setViewingTask(t);
                               setIsViewModalOpen(true);
                             }}
-                            className="bg-white dark:bg-slate-800/90 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs hover:shadow-md hover:border-[#0052CC]/50 transition-all cursor-pointer space-y-2 group"
+                            className="bg-white dark:bg-[#151D2E] p-3 rounded-xl border border-slate-200/80 dark:border-[#1C2638] shadow-xs hover:shadow-md hover:border-[#5B5FEF]/50 transition-all cursor-pointer space-y-2 group"
                           >
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-extrabold font-mono text-[#0052CC] bg-[#DEEBFF]/60 dark:bg-sky-950/50 px-1.5 py-0.5 rounded">
+                              <span className="text-[11px] font-extrabold font-mono text-[#0052CC] bg-[#DEEBFF]/60 dark:bg-[#5B5FEF]/20 dark:text-[#818CF8] px-1.5 py-0.5 rounded">
                                 {t.taskCode}
                               </span>
                               {renderJiraPriority(t.priority)}
@@ -1269,7 +1587,11 @@ export const TasksContent = () => {
 
           {/* TAB 3: JIRA TABULAR LIST VIEW */}
           {activeTab === "list" && (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/90 dark:border-slate-800 overflow-hidden">
+            <div
+              className={`bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/90 dark:border-slate-800 overflow-hidden ${
+                isFullscreen ? "flex-1 min-h-0 flex flex-col" : ""
+              }`}
+            >
               {loading ? (
                 <TasksSkeleton />
               ) : filteredTasks.length === 0 ? (
@@ -1288,11 +1610,15 @@ export const TasksContent = () => {
                 </div>
               ) : (
                 /* Jira Table */
-                <div className="overflow-x-auto w-full custom-scrollbar">
+                <div
+                  className={`overflow-x-auto w-full custom-scrollbar transition-opacity duration-300 ${
+                    isFullscreen ? "flex-1 overflow-y-auto" : ""
+                  } ${refreshing ? "opacity-50 pointer-events-none" : "opacity-100"}`}
+                >
                   <table className="w-full text-left border-collapse">
                     {/* Sticky Table Header */}
                     <thead>
-                      <tr className="border-b border-slate-200/90 dark:border-slate-800 bg-[#F4F5F7] dark:bg-slate-800/80 text-slate-600 dark:text-slate-300">
+                      <tr className="border-b border-slate-200/90 dark:border-slate-800 bg-[#F4F5F7] dark:bg-slate-800/95 backdrop-blur-xs text-slate-600 dark:text-slate-300 sticky top-0 z-20">
                         {/* Checkbox */}
                         <th className="py-3.5 px-2.5 w-10 text-center align-middle">
                           <input
@@ -1329,7 +1655,7 @@ export const TasksContent = () => {
                         <th className="py-3.5 px-2 text-[11.5px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 w-28 align-middle whitespace-nowrap">
                           {t("col_end_date")}
                         </th>
-                        <th className="py-3.5 px-2 text-[11.5px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right w-36 align-middle whitespace-nowrap">
+                        <th className="sticky right-0 z-20 py-3.5 pr-4 pl-2 text-[11.5px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right w-44 min-w-[165px] align-middle whitespace-nowrap bg-[#F4F5F7] dark:bg-slate-800/95 shadow-[-6px_0_10px_-3px_rgba(0,0,0,0.06)] dark:shadow-[-6px_0_10px_-3px_rgba(0,0,0,0.35)]">
                           {t("col_actions")}
                         </th>
                       </tr>
@@ -1342,7 +1668,7 @@ export const TasksContent = () => {
                           const isCollapsed = groupBlock.groupTitle ? collapsedGroups[groupBlock.groupTitle] : false;
 
                           return (
-                            <div key={groupIndex} className="contents">
+                            <Fragment key={groupIndex}>
                               {/* Group Header Row if grouping is active */}
                               {groupBlock.groupTitle && (
                                 <tr
@@ -1380,13 +1706,15 @@ export const TasksContent = () => {
                                   return (
                                     <tr
                                       key={task._id}
-                                      className={`border-b border-slate-200/85 dark:border-slate-800/80 transition-all duration-150 group ${
+                                      className={`border-b border-slate-200/85 dark:border-[#1C2638] transition-all duration-150 group ${
+                                        activeMenuTaskId === task._id ? "relative z-40" : "relative z-0"
+                                      } ${
                                         isSelected
-                                          ? "bg-[#DEEBFF]/50 dark:bg-sky-950/40"
+                                          ? "bg-[#DEEBFF]/50 dark:bg-[#16233B]"
                                           : rowIndex % 2 === 0
-                                          ? "bg-white dark:bg-slate-900"
-                                          : "bg-slate-50/75 dark:bg-[#131B2A]"
-                                      } hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30`}
+                                          ? "bg-white dark:bg-[#101623]"
+                                          : "bg-slate-50/75 dark:bg-[#0D121D]"
+                                      } hover:bg-indigo-50/60 dark:hover:bg-[#161F32]`}
                                     >
                                       {/* Checkbox */}
                                       <td className="py-3 px-2.5 text-center align-middle w-10">
@@ -1394,7 +1722,7 @@ export const TasksContent = () => {
                                           type="checkbox"
                                           checked={isSelected}
                                           onChange={() => toggleSelectTask(task._id)}
-                                          className="rounded border-slate-300 text-[#0052CC] focus:ring-0 cursor-pointer"
+                                          className="rounded border-slate-300 dark:border-slate-600 text-[#5B5FEF] focus:ring-0 cursor-pointer"
                                         />
                                       </td>
 
@@ -1405,10 +1733,10 @@ export const TasksContent = () => {
                                             setViewingTask(task);
                                             setIsViewModalOpen(true);
                                           }}
-                                          className="inline-flex items-center gap-1.5 cursor-pointer hover:underline text-[#0052CC] dark:text-sky-400 font-extrabold font-mono text-[12px]"
+                                          className="inline-flex items-center gap-1.5 cursor-pointer hover:underline text-[#0052CC] dark:text-[#818CF8] font-extrabold font-mono text-[12px]"
                                           title={t("view_details")}
                                         >
-                                          <CheckSquare className="w-3.5 h-3.5 text-[#0052CC]" />
+                                          <CheckSquare className="w-3.5 h-3.5 text-[#0052CC] dark:text-[#818CF8]" />
                                           <span>{task.taskCode}</span>
                                         </div>
                                       </td>
@@ -1521,7 +1849,17 @@ export const TasksContent = () => {
                                       </td>
 
                                       {/* Row End Actions (Professional Standard Order: View -> Edit -> Delete -> More) */}
-                                      <td className="py-3 px-2 text-right align-middle whitespace-nowrap w-36">
+                                      <td
+                                        className={`sticky right-0 ${
+                                          activeMenuTaskId === task._id ? "z-40 shadow-2xl" : "z-10"
+                                        } py-3 pr-4 pl-2 text-right align-middle whitespace-nowrap w-44 min-w-[165px] shadow-[-6px_0_10px_-3px_rgba(0,0,0,0.06)] dark:shadow-[-6px_0_10px_-3px_rgba(0,0,0,0.35)] transition-colors ${
+                                          isSelected
+                                            ? "bg-[#DEEBFF] dark:bg-[#16233B]"
+                                            : rowIndex % 2 === 0
+                                            ? "bg-white dark:bg-[#101623] group-hover:bg-[#F3F6FF] dark:group-hover:bg-[#161F32]"
+                                            : "bg-slate-50 dark:bg-[#0D121D] group-hover:bg-[#F3F6FF] dark:group-hover:bg-[#161F32]"
+                                        }`}
+                                      >
                                         <div className="flex items-center justify-end gap-1.5 h-full">
                                           {/* 1. View Task (Indigo / Purple Theme) - Available to All */}
                                           <button
@@ -1529,31 +1867,42 @@ export const TasksContent = () => {
                                               setViewingTask(task);
                                               setIsViewModalOpen(true);
                                             }}
-                                            className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 hover:text-indigo-700 dark:hover:bg-indigo-900/60 border border-indigo-200/80 dark:border-indigo-900/40 shadow-2xs transition-all cursor-pointer"
+                                            className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 hover:text-indigo-700 dark:hover:bg-indigo-500/25 border border-indigo-200/80 dark:border-indigo-500/30 shadow-2xs transition-all cursor-pointer"
                                             title={t("view_details")}
                                           >
                                             <Eye className="w-3.5 h-3.5" />
                                           </button>
 
-                                          {/* 2. Edit Task (Sky / Blue Theme) - Admin Only */}
-                                          {isAdmin && (
+                                          {/* 2. Edit Task (Sky / Blue Theme) */}
+                                          {(isAdmin || isManager) && !task.isDeleted && (
                                             <button
                                               onClick={() => {
                                                 setEditingTask(task);
                                                 setIsEditModalOpen(true);
                                               }}
-                                              className="p-1.5 rounded-lg text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 hover:text-sky-700 dark:hover:bg-sky-900/60 border border-sky-200/80 dark:border-sky-900/40 shadow-2xs transition-all cursor-pointer"
+                                              className="p-1.5 rounded-lg text-sky-600 dark:text-sky-300 bg-sky-50 dark:bg-sky-500/15 hover:bg-sky-100 hover:text-sky-700 dark:hover:bg-sky-500/25 border border-sky-200/80 dark:border-sky-500/30 shadow-2xs transition-all cursor-pointer"
                                               title={t("edit_task")}
                                             >
                                               <Edit2 className="w-3.5 h-3.5" />
                                             </button>
                                           )}
 
-                                          {/* 3. Delete Task (Rose / Red Danger Theme) - Admin Only */}
-                                          {isAdmin && (
+                                          {/* 3. Restore Task (Emerald Theme) - Admin Only when soft-deleted */}
+                                          {isAdmin && task.isDeleted && (
+                                            <button
+                                              onClick={() => handleRestoreTask(task)}
+                                              className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-500/25 border border-emerald-200/80 dark:border-emerald-500/30 shadow-2xs transition-all cursor-pointer"
+                                              title="Restore Soft-Deleted Deliverable"
+                                            >
+                                              <RotateCcw className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+
+                                          {/* 4. Delete Task (Rose / Red Danger Theme) - Admin Only when active */}
+                                          {isAdmin && !task.isDeleted && (
                                             <button
                                               onClick={() => handleDeleteTask(task)}
-                                              className="p-1.5 rounded-lg text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-900/60 border border-rose-200/80 dark:border-rose-900/40 shadow-2xs transition-all cursor-pointer"
+                                              className="p-1.5 rounded-lg text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/15 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-500/25 border border-rose-200/80 dark:border-rose-500/30 shadow-2xs transition-all cursor-pointer"
                                               title={t("delete_task")}
                                             >
                                               <Trash2 className="w-3.5 h-3.5" />
@@ -1561,11 +1910,14 @@ export const TasksContent = () => {
                                           )}
 
                                           {/* 4. 3-Dot Dropdown Menu (Neutral Slate Theme) */}
-                                          <div className={`relative ${activeMenuTaskId === task._id ? "z-50" : ""}`}>
+                                          <div
+                                            ref={activeMenuTaskId === task._id ? menuRef : null}
+                                            className={`relative ${activeMenuTaskId === task._id ? "z-50" : ""}`}
+                                          >
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                setActiveMenuTaskId(activeMenuTaskId === task._id ? null : task._id);
+                                                setActiveMenuTaskId((prev) => (prev === task._id ? null : task._id));
                                               }}
                                               className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-slate-700 dark:hover:text-white border border-slate-200/90 dark:border-slate-700 shadow-2xs transition-all cursor-pointer"
                                               title={t("quick_actions")}
@@ -1576,14 +1928,13 @@ export const TasksContent = () => {
                                             {/* Dropdown Menu Box */}
                                             {activeMenuTaskId === task._id && (
                                               <div
-                                                ref={menuRef}
                                                 className={`absolute right-0 ${
                                                   paginatedTasks.length > 2 &&
                                                   paginatedTasks.findIndex((pt) => pt._id === task._id) >=
                                                     paginatedTasks.length - 2
                                                     ? "bottom-full mb-1.5 origin-bottom-right"
                                                     : "top-full mt-1.5 origin-top-right"
-                                                } w-52 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 z-50 animate-in fade-in zoom-in-95 text-left`}
+                                                } w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700 py-1.5 z-50 animate-in fade-in zoom-in-95 text-left`}
                                               >
                                                 <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 text-[11px] font-black text-slate-400 uppercase tracking-wider">
                                                   {t("quick_actions")}
@@ -1667,7 +2018,7 @@ export const TasksContent = () => {
                                     </tr>
                                   );
                                 })}
-                            </div>
+                            </Fragment>
                           );
                         },
                       )}
@@ -1677,7 +2028,7 @@ export const TasksContent = () => {
               )}
 
               {/* Jira Table Footer */}
-              <div className="px-4 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-[#F4F5F7]/50 dark:bg-slate-800/40 flex flex-col md:flex-row items-center justify-between gap-3">
+              <div className="shrink-0 px-4 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-[#F4F5F7]/50 dark:bg-slate-800/40 flex flex-col md:flex-row items-center justify-between gap-3">
                 {/* Jira-Style + Create Button at bottom left / Selection badge */}
                 <div className="flex items-center gap-3">
                   {selectedTaskIds.length > 0 ? (
@@ -1732,7 +2083,7 @@ export const TasksContent = () => {
                   <span className="text-slate-300 dark:text-slate-700">•</span>
 
                   {/* Counter & Refresh */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <span>
                       {filteredTasks.length > 0
                         ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(
@@ -1749,43 +2100,134 @@ export const TasksContent = () => {
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-[#0052CC]" : ""}`} />
                     </button>
+
+                    {/* Seamless Load More Button */}
+                    {itemsPerPage < filteredTasks.length && (
+                      <button
+                        onClick={() => {
+                          setItemsPerPage((prev) => Math.min(prev + 10, filteredTasks.length));
+                          toast.success("Loaded more deliverables seamlessly", { id: "load-more-toast" });
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-[#5B5FEF] dark:text-indigo-300 hover:bg-indigo-100 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                        title="Load 10 more tasks into view without reloading"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Load More</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Pagination Controls */}
-                {!loading && filteredTasks.length > 0 && (
-                  <div className="flex items-center gap-1">
+                {/* Professional Windowed Smart Pagination Controls */}
+                {!loading && filteredTasks.length > 0 && totalPages > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* First Page Button (when more than 4 pages) */}
+                    {totalPages > 4 && (
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        className="p-1.5 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#5B5FEF] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+                        title="First page (Page 1)"
+                      >
+                        <ChevronsLeft className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {/* Previous Button */}
                     <button
                       onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                      className="p-1.5 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#5B5FEF] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
                       title={t("previous")}
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
+
+                    {/* Numbered Buttons with Smart Ellipsis Truncation */}
                     <div className="flex items-center gap-1">
-                      {Array.from({ length: totalPages }).map((_, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setCurrentPage(i + 1)}
-                          className={`w-7 h-7 rounded-lg text-[12px] font-bold transition-all cursor-pointer ${
-                            currentPage === i + 1
-                              ? "bg-[#0052CC] text-white shadow-xs"
-                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          }`}
-                        >
-                          {i + 1}
-                        </button>
-                      ))}
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter((p) => {
+                          if (totalPages <= 7) return true;
+                          if (p === 1 || p === totalPages) return true;
+                          if (Math.abs(p - currentPage) <= 1) return true;
+                          return false;
+                        })
+                        .map((p, idx, arr) => {
+                          const showEllipsis = idx > 0 && p - arr[idx - 1] > 1;
+                          return (
+                            <div key={p} className="flex items-center gap-1">
+                              {showEllipsis && (
+                                <span className="px-1 text-slate-400 dark:text-slate-500 font-black text-xs select-none">
+                                  •••
+                                </span>
+                              )}
+                              <button
+                                onClick={() => setCurrentPage(p)}
+                                className={`min-w-[32px] h-8 px-2 rounded-xl text-[12px] font-black transition-all cursor-pointer flex items-center justify-center ${
+                                  currentPage === p
+                                    ? "bg-[#5B5FEF] text-white shadow-[0_2px_8px_rgba(91,95,239,0.35)] scale-105"
+                                    : "bg-white dark:bg-[#151D2E] text-slate-700 dark:text-slate-300 border border-slate-200/90 dark:border-[#1C2638] hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:border-[#5B5FEF]/40"
+                                }`}
+                              >
+                                {p}
+                              </button>
+                            </div>
+                          );
+                        })}
                     </div>
+
+                    {/* Next Button */}
                     <button
                       onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                       disabled={currentPage === totalPages}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                      className="p-1.5 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#5B5FEF] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
                       title={t("next")}
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
+
+                    {/* Last Page Button (when more than 4 pages) */}
+                    {totalPages > 4 && (
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className="p-1.5 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#5B5FEF] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+                        title={`Last page (Page ${totalPages})`}
+                      >
+                        <ChevronsRight className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {/* Quick Jump-to-Page Input when totalPages > 5 */}
+                    {totalPages > 5 && (
+                      <div className="hidden md:flex items-center gap-1.5 text-[12px] font-bold text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-[#1C2638]">
+                        <span className="text-[11.5px] font-bold text-slate-400">Page</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={totalPages}
+                          defaultValue={currentPage}
+                          key={`jump-${currentPage}`}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const val = parseInt((e.target as HTMLInputElement).value, 10);
+                              if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                                setCurrentPage(val);
+                              }
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                              setCurrentPage(val);
+                            }
+                          }}
+                          className="w-12 px-1 py-1 text-center bg-white dark:bg-[#151D2E] border border-slate-200/90 dark:border-[#1C2638] rounded-lg text-[12px] font-extrabold text-slate-800 dark:text-white outline-none focus:border-[#5B5FEF] focus:ring-1 focus:ring-[#5B5FEF]/20"
+                          title="Type page number and press Enter"
+                        />
+                        <span className="text-[11px] text-slate-400 font-bold">of {totalPages}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1796,7 +2238,7 @@ export const TasksContent = () => {
               TAB 4: INTERACTIVE SPRINT TIMELINE & GANTT VIEW
              ========================================================================= */}
           {activeTab === "timeline" && (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/90 dark:border-slate-800 p-5 space-y-5">
+            <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/90 dark:border-slate-800 p-5 space-y-5 ${isFullscreen ? "flex-1 min-h-0 overflow-y-auto custom-scrollbar" : ""}`}>
               {/* Timeline Header & Metrics */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
                 <div>
@@ -1845,7 +2287,7 @@ export const TasksContent = () => {
 
                   {/* Task Timeline Items */}
                   <div className="space-y-2.5">
-                    {filteredTasks.map((t) => {
+                    {paginatedTimelineTasks.map((t) => {
                       const assignees = (t.assignedTo || []).filter(
                         (a): a is AssignedUser => typeof a !== "string",
                       );
@@ -1896,7 +2338,11 @@ export const TasksContent = () => {
                             </div>
 
                             {/* Status Chip */}
-                            <div className="col-span-2 text-left lg:text-center">
+                            <div
+                              className="col-span-2 text-left lg:text-center"
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
                               {renderJiraStatusPill(t)}
                             </div>
 
@@ -1940,6 +2386,130 @@ export const TasksContent = () => {
                       );
                     })}
                   </div>
+
+                  {/* Timeline Pagination Footer */}
+                  <div className="shrink-0 px-4 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-[#F4F5F7]/50 dark:bg-slate-800/40 rounded-xl flex flex-col md:flex-row items-center justify-between gap-3 mt-4">
+                    {/* Left: Deliverables Count Summary */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12.5px] font-bold text-slate-500 dark:text-slate-400">
+                        {filteredTasks.length > 0
+                          ? `Showing ${(timelinePage - 1) * timelineItemsPerPage + 1}-${Math.min(
+                              timelinePage * timelineItemsPerPage,
+                              filteredTasks.length,
+                            )} of ${filteredTasks.length} timeline deliverables`
+                          : "0 deliverables"}
+                      </span>
+                    </div>
+
+                    {/* Center: Page Size Selector (5, 10, 15, 20, 50) */}
+                    <div className="flex items-center gap-2 text-[12.5px] font-bold text-slate-500 dark:text-slate-400">
+                      <span>Show:</span>
+                      <div className="relative inline-flex items-center">
+                        <select
+                          value={timelineItemsPerPage}
+                          onChange={(e) => {
+                            setTimelineItemsPerPage(Number(e.target.value));
+                            setTimelinePage(1);
+                          }}
+                          className="appearance-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg px-2.5 py-1 pr-6 text-[12px] font-bold outline-none hover:border-slate-300 dark:hover:border-slate-600 focus:border-[#0052CC] cursor-pointer shadow-2xs transition-all"
+                        >
+                          <option value={5}>5</option>
+                          <option value={10}>10</option>
+                          <option value={15}>15</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                        <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 pointer-events-none" />
+                      </div>
+                      <span>per page</span>
+                    </div>
+
+                    {/* Right: Next / Previous and Numbered Buttons */}
+                    {totalTimelinePages > 1 ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* First Page Button */}
+                        {totalTimelinePages > 4 && (
+                          <button
+                            onClick={() => setTimelinePage(1)}
+                            disabled={timelinePage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#0052CC] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+                            title="First page"
+                          >
+                            <ChevronsLeft className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {/* Previous Button */}
+                        <button
+                          onClick={() => setTimelinePage((p) => Math.max(1, p - 1))}
+                          disabled={timelinePage === 1}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#0052CC] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs text-[12px] font-bold flex items-center gap-1"
+                          title="Previous page"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                          <span>Previous</span>
+                        </button>
+
+                        {/* Numbered Buttons with Ellipsis */}
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: totalTimelinePages }, (_, i) => i + 1)
+                            .filter((p) => {
+                              if (totalTimelinePages <= 7) return true;
+                              if (p === 1 || p === totalTimelinePages) return true;
+                              if (Math.abs(p - timelinePage) <= 1) return true;
+                              return false;
+                            })
+                            .map((p, idx, arr) => {
+                              const showEllipsis = idx > 0 && p - arr[idx - 1] > 1;
+                              return (
+                                <div key={p} className="flex items-center gap-1">
+                                  {showEllipsis && (
+                                    <span className="px-1 text-slate-400 dark:text-slate-500 font-black text-xs select-none">
+                                      •••
+                                    </span>
+                                  )}
+                                  <button
+                                    onClick={() => setTimelinePage(p)}
+                                    className={`min-w-[32px] h-8 px-2 rounded-xl text-[12px] font-black transition-all cursor-pointer flex items-center justify-center ${
+                                      timelinePage === p
+                                        ? "bg-[#0052CC] text-white shadow-[0_2px_8px_rgba(0,82,204,0.35)] scale-105"
+                                        : "bg-white dark:bg-[#151D2E] text-slate-700 dark:text-slate-300 border border-slate-200/90 dark:border-[#1C2638] hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:border-[#0052CC]/40"
+                                    }`}
+                                  >
+                                    {p}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {/* Next Button */}
+                        <button
+                          onClick={() => setTimelinePage((p) => Math.min(totalTimelinePages, p + 1))}
+                          disabled={timelinePage === totalTimelinePages}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#0052CC] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs text-[12px] font-bold flex items-center gap-1"
+                          title="Next page"
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+
+                        {/* Last Page Button */}
+                        {totalTimelinePages > 4 && (
+                          <button
+                            onClick={() => setTimelinePage(totalTimelinePages)}
+                            disabled={timelinePage === totalTimelinePages}
+                            className="p-1.5 rounded-lg border border-slate-200/90 dark:border-[#1C2638] bg-white dark:bg-[#151D2E] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#1A2438] hover:text-[#0052CC] dark:hover:text-white disabled:opacity-35 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+                            title="Last page"
+                          >
+                            <ChevronsRight className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1949,10 +2519,10 @@ export const TasksContent = () => {
               TAB 5: FORMS, ANALYTICS & EXPORT REPORTS HUB
              ========================================================================= */}
           {activeTab === "reports" && (
-            <div className="space-y-5">
+            <div className={`space-y-5 ${isFullscreen ? "flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1" : ""}`}>
               {/* Reports Export Cards Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* 1. Full Audit Log CSV */}
+                {/* 1. Complete Workspace Task Audit */}
                 <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-[#5B5FEF] flex items-center justify-center shadow-2xs">
@@ -1965,13 +2535,38 @@ export const TasksContent = () => {
                       Download full spreadsheet with task IDs, assignees, dates, priority tags, and resolution histories.
                     </p>
                   </div>
-                  <button
-                    onClick={() => exportTasksToCSV(tasks)}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#0052CC] hover:bg-[#0065FF] text-white text-[12.5px] font-extrabold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Master CSV ({tasks.length})</span>
-                  </button>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Download Format ({tasks.length} tasks):
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => exportTasksToExcel(tasks, "Workspace_Task_Audit")}
+                        className="py-2.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-emerald-200/70 dark:border-emerald-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Download as Microsoft Excel Spreadsheet (.xls)"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Excel</span>
+                      </button>
+                      <button
+                        onClick={() => printTasksReport(tasks, "Complete Workspace Task Audit")}
+                        className="py-2.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-rose-200/70 dark:border-rose-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Print or Save as PDF Document"
+                      >
+                        <FileText className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                        <span>PDF</span>
+                      </button>
+                      <button
+                        onClick={() => exportTasksToCSV(tasks, "Workspace_Task_Audit")}
+                        className="py-2.5 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-blue-200/70 dark:border-blue-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Download as CSV Data File"
+                      >
+                        <Download className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <span>CSV</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* 2. Urgent & Incident Report */}
@@ -1987,21 +2582,59 @@ export const TasksContent = () => {
                       Instant report containing all high-priority bottlenecks and overdue tasks requiring management review.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      const incidents = tasks.filter(
-                        (t) =>
-                          t.priority === "urgent" ||
-                          (t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed"),
-                      );
-                      exportTasksToCSV(incidents);
-                      toast.success(`Exported ${incidents.length} incident records`);
-                    }}
-                    className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[12.5px] font-extrabold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Incidents CSV</span>
-                  </button>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Download Format:
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => {
+                          const incidents = tasks.filter(
+                            (t) =>
+                              t.priority === "urgent" ||
+                              (t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed"),
+                          );
+                          exportTasksToExcel(incidents, "Urgent_Incidents_Report");
+                        }}
+                        className="py-2.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-emerald-200/70 dark:border-emerald-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Download Incidents as Excel (.xls)"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Excel</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const incidents = tasks.filter(
+                            (t) =>
+                              t.priority === "urgent" ||
+                              (t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed"),
+                          );
+                          printTasksReport(incidents, "Urgent & Overdue Incidents Report");
+                        }}
+                        className="py-2.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-rose-200/70 dark:border-rose-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Print or Save Incidents as PDF"
+                      >
+                        <FileText className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                        <span>PDF</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const incidents = tasks.filter(
+                            (t) =>
+                              t.priority === "urgent" ||
+                              (t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed"),
+                          );
+                          exportTasksToCSV(incidents, "Urgent_Incidents_Report");
+                        }}
+                        className="py-2.5 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-blue-200/70 dark:border-blue-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Download Incidents as CSV"
+                      >
+                        <Download className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <span>CSV</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* 3. Executive Summary / Print */}
@@ -2017,13 +2650,38 @@ export const TasksContent = () => {
                       Generate print-ready executive summary suitable for sprint retrospectives and stakeholder updates.
                     </p>
                   </div>
-                  <button
-                    onClick={() => printTasksReport(tasks)}
-                    className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white text-[12.5px] font-extrabold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer"
-                  >
-                    <Printer className="w-4 h-4 text-emerald-600" />
-                    <span>Print Executive Summary</span>
-                  </button>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Download Format:
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => exportTasksToExcel(tasks, "Executive_Brief_Report")}
+                        className="py-2.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-emerald-200/70 dark:border-emerald-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Download Executive Brief in Excel (.xls)"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Excel</span>
+                      </button>
+                      <button
+                        onClick={() => printTasksReport(tasks, "Executive Printable Brief")}
+                        className="py-2.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-rose-200/70 dark:border-rose-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Print or Save Executive Brief as PDF"
+                      >
+                        <Printer className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                        <span>PDF</span>
+                      </button>
+                      <button
+                        onClick={() => exportTasksToCSV(tasks, "Executive_Brief_Report")}
+                        className="py-2.5 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 text-[12px] font-extrabold flex flex-col items-center justify-center gap-1 border border-blue-200/70 dark:border-blue-800/60 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        title="Download Executive Brief in CSV"
+                      >
+                        <Download className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <span>CSV</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2102,13 +2760,41 @@ export const TasksContent = () => {
             </div>
           )}
         </div>
+
+        {/* ================= BOTTOM STATUS / SUMMARY BAR ================= */}
+        {!isFullscreen && (
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3 px-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 text-[12.5px] font-medium text-slate-600 dark:text-slate-400 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <span>
+                {t("showing")} <strong className="text-slate-900 dark:text-white font-bold">{filteredTasks.length}</strong> {t("of")}{" "}
+                <strong className="text-slate-900 dark:text-white font-bold">{tasks.length}</strong> {t("tasks_label")}
+              </span>
+              {hasActiveFilters && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-[11px] font-bold border border-amber-200/60 dark:border-amber-900/40">
+                  Filtered view
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              {hasActiveFilters && (
+                <button
+                  onClick={resetAllFilters}
+                  className="text-[12px] font-bold text-[#0052CC] dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Clear all filters</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* =========================================================================
           FLOATING BULK ACTION BAR (BOTH EMPLOYEE AND ADMIN)
          ========================================================================= */}
       {selectedTaskIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] animate-in fade-in slide-in-from-bottom-5 duration-200">
           <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700/90 flex items-center gap-3 max-w-[95vw] flex-wrap justify-center">
             {/* Selection Counter Badge */}
             <div className="flex items-center gap-2 pr-2 border-r border-slate-700">
@@ -2193,7 +2879,7 @@ export const TasksContent = () => {
 
       {/* Bulk Delete Confirmation Modal (Admin Only) */}
       {isAdmin && isBulkDeleteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-[28px] max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950/50 text-red-600 flex items-center justify-center mx-auto">
               <AlertTriangle className="w-6 h-6" />
@@ -2253,7 +2939,7 @@ export const TasksContent = () => {
          ========================================================================= */}
 
       {/* New Task Modal */}
-      {isAdmin && (
+      {canCreateTask && (
         <NewTaskModal
           isOpen={isNewTaskModalOpen}
           onClose={() => setIsNewTaskModalOpen(false)}
@@ -2261,8 +2947,8 @@ export const TasksContent = () => {
         />
       )}
 
-      {/* Edit Task Modal - Admin Only */}
-      {isAdmin && (
+      {/* Edit Task Modal - Admin & Manager */}
+      {(isAdmin || isManager) && (
         <EditTaskModal
           task={editingTask}
           isOpen={isEditModalOpen}
@@ -2290,6 +2976,18 @@ export const TasksContent = () => {
             prev.map((t) => (t._id === taskId ? { ...t, status: newStatus as any } : t)),
           );
         }}
+        onTaskUpdated={(updatedTask) => {
+          setTasks((prev) =>
+            prev.map((t) => (t._id === updatedTask._id ? updatedTask : t)),
+          );
+          setViewingTask(updatedTask);
+        }}
+        onEdit={(isAdmin || isManager) ? (task) => {
+          setIsViewModalOpen(false);
+          setViewingTask(null);
+          setEditingTask(task);
+          setIsEditModalOpen(true);
+        } : undefined}
       />
     </div>
   );

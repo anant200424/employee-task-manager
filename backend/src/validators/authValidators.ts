@@ -104,8 +104,31 @@ export const forgotPasswordSchema = z.object({
     .email("Enter a valid email address"),
 });
 
+export const verifyResetOtpSchema = z.object({
+  email: z
+    .string({ required_error: "Email address is required" })
+    .trim()
+    .toLowerCase()
+    .email("Enter a valid email address"),
+  otp: z
+    .string({ required_error: "Verification code is required" })
+    .length(6, "Verification code must be exactly 6 digits")
+    .regex(/^\d{6}$/, "Verification code must contain numbers only"),
+});
+
 export const resetPasswordSchema = z
   .object({
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email("Enter a valid email address")
+      .optional(),
+    otp: z
+      .string()
+      .length(6, "Verification code must be exactly 6 digits")
+      .regex(/^\d{6}$/, "Verification code must contain numbers only")
+      .optional(),
     password: passwordField,
     confirmPassword: z.string({
       required_error: "Please confirm your password",
@@ -120,9 +143,22 @@ export const updateProfileSchema = z
   .object({
     firstName: nameField("First name").optional(),
     lastName: nameField("Last name").optional(),
-    department: z.string().optional(),
-    role: z.string().optional(),
-    employeeId: z.string().optional(),
+    department: z
+      .string()
+      .min(2, "Department must be at least 2 characters")
+      .max(50, "Department cannot exceed 50 characters")
+      .optional(),
+    role: z
+      .string()
+      .min(2, "Role title must be at least 2 characters")
+      .max(60, "Role title cannot exceed 60 characters")
+      .optional(),
+    employeeId: z
+      .string()
+      .min(3, "Employee ID must be at least 3 characters")
+      .max(25, "Employee ID cannot exceed 25 characters")
+      .regex(/^[A-Za-z0-9-_]+$/, "Employee ID can only contain letters, numbers, hyphens and underscores")
+      .optional(),
     dateOfBirth: z.string().optional(),
     countryCode: z
       .string()
@@ -134,31 +170,66 @@ export const updateProfileSchema = z
     phoneNumber: z.string().trim().optional(),
     avatarUrl: z.string().optional(),
     coverUrl: z.string().optional(),
-    employmentInfo: z.object({
-      joiningDate: z.string().optional(),
-      workLocation: z.string().optional(),
-      employmentType: z.string().optional(),
-      manager: z.string().optional(),
-    }).optional(),
-    compliance: z.object({
-      panNumber: z.string().optional(),
-      aadharNumber: z.string().optional(),
-      uanNumber: z.string().optional(),
-      taxRegime: z.enum(["old", "new"]).optional(),
-    }).optional(),
-    documents: z.array(z.object({
-      _id: z.string().optional(),
-      title: z.string(),
-      url: z.string(),
-      type: z.string(),
-    })).optional(),
-    salary: z.object({
-      basic: z.number().optional(),
-      hra: z.number().optional(),
-      allowances: z.number().optional(),
-      pf: z.number().optional(),
-      totalCTC: z.number().optional(),
-    }).optional(),
+    employmentInfo: z
+      .object({
+        joiningDate: z.string().optional(),
+        workLocation: z.string().optional(),
+        employmentType: z.string().optional(),
+        manager: z
+          .string()
+          .max(60, "Manager name cannot exceed 60 characters")
+          .optional(),
+        designation: z
+          .string()
+          .max(60, "Designation cannot exceed 60 characters")
+          .optional(),
+      })
+      .optional(),
+    compliance: z
+      .object({
+        panNumber: z
+          .string()
+          .refine(
+            (val) => !val || /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(val.trim().toUpperCase()),
+            "Invalid PAN format (e.g. ABCDE1234F)",
+          )
+          .optional(),
+        aadharNumber: z
+          .string()
+          .refine(
+            (val) => !val || /^[0-9]{12}$/.test(val.trim().replace(/\s+/g, "")),
+            "Invalid Aadhaar format (must be 12 digits)",
+          )
+          .optional(),
+        uanNumber: z
+          .string()
+          .refine(
+            (val) => !val || /^[0-9]{12}$/.test(val.trim().replace(/\s+/g, "")),
+            "Invalid UAN format (must be 12 digits)",
+          )
+          .optional(),
+        taxRegime: z.enum(["old", "new"]).optional(),
+      })
+      .optional(),
+    documents: z
+      .array(
+        z.object({
+          _id: z.string().optional(),
+          title: z.string(),
+          url: z.string(),
+          type: z.string(),
+        }),
+      )
+      .optional(),
+    salary: z
+      .object({
+        basic: z.number().min(0, "Basic salary cannot be negative").optional(),
+        hra: z.number().min(0, "HRA cannot be negative").optional(),
+        allowances: z.number().min(0, "Allowances cannot be negative").optional(),
+        pf: z.number().min(0, "PF cannot be negative").optional(),
+        totalCTC: z.number().min(0, "Total CTC cannot be negative").optional(),
+      })
+      .optional(),
     privacySettings: z.object({
       dataSharingConsent: z.boolean().optional(),
       marketingEmails: z.boolean().optional(),
@@ -169,6 +240,18 @@ export const updateProfileSchema = z
       weeklyDigest: z.boolean().optional(),
       theme: z.enum(["light", "dark", "system"]).optional(),
     }).optional(),
+    regionalPreferences: z.object({
+      language: z.string().optional(),
+      timezone: z.string().optional(),
+      dateFormat: z.string().optional(),
+      firstDayOfWeek: z.string().optional(),
+    }).optional(),
+    appearancePreferences: z.object({
+      density: z.string().optional(),
+      accentColor: z.string().optional(),
+      sidebarBehavior: z.string().optional(),
+    }).optional(),
+    twoFactorEnabled: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.phoneNumber && data.countryCode) {
@@ -190,15 +273,44 @@ export const changePasswordSchema = z
   .object({
     currentPassword: z.string({
       required_error: "Current password is required",
-    }),
+    }).min(1, "Current password is required"),
     newPassword: passwordField,
-    confirmPassword: z.string({
-      required_error: "Please confirm your new password",
-    }),
+    confirmPassword: z.string().optional(),
+    confirmNewPassword: z.string().optional(),
   })
-  .refine((data) => data.newPassword === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
+  .superRefine((data, ctx) => {
+    const confirmation = data.confirmPassword || data.confirmNewPassword;
+    if (!confirmation) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please confirm your new password",
+        path: ["confirmPassword"],
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please confirm your new password",
+        path: ["confirmNewPassword"],
+      });
+    } else if (data.newPassword !== confirmation) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Passwords do not match",
+        path: ["confirmPassword"],
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Passwords do not match",
+        path: ["confirmNewPassword"],
+      });
+    }
+
+    if (data.currentPassword && data.newPassword && data.currentPassword === data.newPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "New password must be different from current password",
+        path: ["newPassword"],
+      });
+    }
   });
 
 export const verifyOtpSchema = z.object({

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldAlert, CheckCircle2, AlertCircle, FileText, Download, Trash2, Shield } from "lucide-react";
+import { ShieldAlert, CheckCircle2, AlertCircle, FileText, Download, Trash2, Shield, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { api, extractApiError } from "@/lib/api";
+import { DeleteAccountModal } from "./DeleteAccountModal";
 
 export const PrivacyTab = () => {
   const { user, setUser } = useAuth();
@@ -14,6 +15,7 @@ export const PrivacyTab = () => {
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const handleSavePreferences = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,23 +163,44 @@ export const PrivacyTab = () => {
             </button>
           </div>
 
-          <div className="p-5 rounded-2xl border border-rose-100 bg-rose-50/30 flex flex-col items-start">
-            <div className="p-2.5 rounded-xl bg-white border border-rose-100 shadow-sm mb-4">
-              <ShieldAlert className="w-5 h-5 text-rose-600" />
+          <div className="p-5 rounded-2xl border border-rose-100 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/20 flex flex-col items-start justify-between">
+            <div>
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-rose-100 dark:border-rose-900/50 shadow-sm mb-4 inline-block">
+                <ShieldAlert className="w-5 h-5 text-rose-600" />
+              </div>
+              <h4 className="text-[14.5px] font-bold text-slate-900 dark:text-white">Delete Profile & Data</h4>
+              <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-1 mb-5">
+                Permanently purge your employee profile, active task deliverables, and account credentials from EmpSphere.
+              </p>
             </div>
-            <h4 className="text-[14.5px] font-bold text-slate-900">Account Deletion</h4>
-            <p className="text-[12.5px] text-slate-500 mt-1 mb-5">
-              Request permanent deletion of your account. HR approval is required to process this request.
-            </p>
-            <button 
-              onClick={handleDeleteAccount}
-              className="mt-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 border border-rose-600 text-white font-bold text-[13px] hover:bg-rose-700 transition-colors shadow-sm"
-            >
-              <Trash2 className="w-4 h-4" /> Request Deletion
-            </button>
+            {Boolean(
+              user?.role?.toLowerCase().includes("admin") ||
+              user?.role?.toLowerCase().includes("super") ||
+              ["super_admin", "system_admin", "admin"].includes(user?.systemRole || "") ||
+              user?.email === "anantsingh20334411@gmail.com"
+            ) ? (
+              <div className="mt-auto flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[12px] font-extrabold border border-indigo-200 dark:border-indigo-800/60">
+                <ShieldCheck className="w-4 h-4 text-[#5B5FEF]" />
+                <span>Admin Profile Protected</span>
+              </div>
+            ) : (
+              <button 
+                type="button"
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="mt-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-[13px] transition-colors shadow-sm cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" /> Delete My Profile
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Professional Account Deletion Modal */}
+      <DeleteAccountModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+      />
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import mongoose, { Document, Model, Schema } from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { uploadImageToCloudinary } from "../config/cloudinary";
 
 export interface IUser extends Document {
   firstName: string;
@@ -11,6 +12,7 @@ export interface IUser extends Document {
   phoneNumber: string; // national significant number, digits only
   department: string; // e.g. "Engineering"
   role: string; // e.g. "Software Engineer" or "admin"
+  systemRole?: "super_admin" | "system_admin" | "admin" | "manager" | "employee";
   employeeId: string; // e.g. "EMP-1042"
   dateOfBirth: Date;
   password: string;
@@ -26,6 +28,9 @@ export interface IUser extends Document {
   isBlocked?: boolean;
   blockedAt?: Date;
   blockedReason?: string;
+  isDeleted?: boolean;
+  deletedAt?: Date;
+  deletedBy?: mongoose.Types.ObjectId;
 
   // HR Fields
   employmentInfo?: {
@@ -33,6 +38,7 @@ export interface IUser extends Document {
     workLocation?: string;
     employmentType?: string;
     manager?: string;
+    designation?: string;
   };
   compliance?: {
     panNumber?: string;
@@ -64,6 +70,29 @@ export interface IUser extends Document {
     weeklyDigest: boolean;
     theme: "light" | "dark" | "system";
   };
+  regionalPreferences?: {
+    language: string;
+    timezone: string;
+    dateFormat: string;
+    firstDayOfWeek: string;
+  };
+  appearancePreferences?: {
+    density: string;
+    accentColor: string;
+    sidebarBehavior: string;
+  };
+  twoFactorEnabled?: boolean;
+
+  // Sensitive change verification OTPs
+  changeEmailOtpHash?: string;
+  changeEmailOtpExpires?: Date;
+  pendingNewEmail?: string;
+
+  changePhoneOtpHash?: string;
+  changePhoneOtpExpires?: Date;
+  pendingNewCountryCode?: string;
+  pendingNewDialCode?: string;
+  pendingNewPhone?: string;
 
   createdAt: Date;
   updatedAt: Date;
@@ -127,6 +156,12 @@ const userSchema = new Schema<IUser>(
       type: String,
       default: "Software Engineer",
       trim: true,
+    },
+    systemRole: {
+      type: String,
+      enum: ["super_admin", "system_admin", "admin", "manager", "employee"],
+      default: "employee",
+      index: true,
     },
     employeeId: {
       type: String,
@@ -197,11 +232,24 @@ const userSchema = new Schema<IUser>(
       type: String,
       trim: true,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
     employmentInfo: {
       joiningDate: { type: Date },
       workLocation: { type: String, default: "Office" },
       employmentType: { type: String, default: "Full-Time" },
       manager: { type: String },
+      designation: { type: String, trim: true },
     },
     compliance: {
       panNumber: { type: String, uppercase: true },
@@ -234,6 +282,32 @@ const userSchema = new Schema<IUser>(
       weeklyDigest: { type: Boolean, default: true },
       theme: { type: String, enum: ["light", "dark", "system"], default: "system" },
     },
+    regionalPreferences: {
+      language: { type: String, default: "English" },
+      timezone: { type: String, default: "UTC-05:00 Eastern Time (US)" },
+      dateFormat: { type: String, default: "MM/DD/YYYY" },
+      firstDayOfWeek: { type: String, default: "Sunday" },
+    },
+    appearancePreferences: {
+      density: { type: String, default: "Comfortable" },
+      accentColor: { type: String, default: "Indigo" },
+      sidebarBehavior: { type: String, default: "Expanded" },
+    },
+    twoFactorEnabled: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Profile credential change OTPs (never expose in normal responses)
+    changeEmailOtpHash: { type: String, select: false },
+    changeEmailOtpExpires: { type: Date, select: false },
+    pendingNewEmail: { type: String, lowercase: true, trim: true },
+
+    changePhoneOtpHash: { type: String, select: false },
+    changePhoneOtpExpires: { type: Date, select: false },
+    pendingNewCountryCode: { type: String },
+    pendingNewDialCode: { type: String },
+    pendingNewPhone: { type: String, trim: true },
   },
   { timestamps: true },
 );
@@ -243,8 +317,17 @@ userSchema.virtual("isLocked").get(function (this: IUser) {
   return !!(this.lockUntil && this.lockUntil.getTime() > Date.now());
 });
 
-// Hash password before saving
+// Pre-save hook: hash password and optimize base64 images to static files
 userSchema.pre("save", async function (next) {
+  if (this.isModified("avatarUrl") && this.avatarUrl && this.avatarUrl.startsWith("data:image/")) {
+    const res = await uploadImageToCloudinary(this.avatarUrl, "empsphere/avatars", `avatar-${this.id}`);
+    this.avatarUrl = res.url;
+  }
+  if (this.isModified("coverUrl") && this.coverUrl && this.coverUrl.startsWith("data:image/")) {
+    const res = await uploadImageToCloudinary(this.coverUrl, "empsphere/covers", `cover-${this.id}`);
+    this.coverUrl = res.url;
+  }
+
   if (!this.isModified("password")) return next();
   const salt = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
@@ -281,6 +364,12 @@ userSchema.set("toJSON", {
     delete obj.passwordResetToken;
     delete obj.passwordResetExpires;
     delete obj.refreshTokens;
+    delete obj.changeEmailOtpHash;
+    delete obj.changeEmailOtpExpires;
+    delete obj.changePhoneOtpHash;
+    delete obj.changePhoneOtpExpires;
+    delete obj.pendingNewEmail;
+    delete obj.pendingNewPhone;
     delete obj.__v;
     return obj;
   },

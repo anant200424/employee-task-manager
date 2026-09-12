@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { SocketProvider } from "@/context/SocketContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { Toaster } from "react-hot-toast";
@@ -33,46 +34,52 @@ export const metadata: Metadata = {
   },
 };
 
+import { ThemeHydration } from "@/components/providers/ThemeHydration";
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jakarta.variable}`}>
+    <html lang="en" className={`${inter.variable} ${jakarta.variable}`} suppressHydrationWarning>
       <body>
+        <ThemeHydration />
         <LanguageProvider>
           <AuthProvider>
-            <SidebarProvider>
-              {children}
-            </SidebarProvider>
+            <SocketProvider>
+              <SidebarProvider>
+                {children}
+              </SidebarProvider>
+            </SocketProvider>
             <Toaster
               position="top-right"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: '#1E293B',
-                color: '#F1F5F9',
-                fontSize: '13px',
-                fontWeight: 500,
-                borderRadius: '12px',
-                padding: '10px 14px',
-                maxWidth: '340px',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                border: '1px solid rgba(255,255,255,0.08)',
-              },
-              success: {
-                iconTheme: { primary: '#10B981', secondary: '#fff' },
-              },
-              error: {
-                iconTheme: { primary: '#EF4444', secondary: '#fff' },
-              },
-            }}
-            containerStyle={{ top: 16, right: 16 }}
-          />
-        </AuthProvider>
-      </LanguageProvider>
-    </body>
-  </html>
-);
+              gutter={8}
+              toastOptions={{
+                duration: 2500,
+                style: {
+                  background: '#0F172A',
+                  color: '#F8FAFC',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  borderRadius: '12px',
+                  padding: '10px 16px',
+                  maxWidth: '360px',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                },
+                success: {
+                  iconTheme: { primary: '#10B981', secondary: '#fff' },
+                },
+                error: {
+                  iconTheme: { primary: '#EF4444', secondary: '#fff' },
+                },
+              }}
+              containerStyle={{ top: 20, right: 20 }}
+            />
+          </AuthProvider>
+        </LanguageProvider>
+      </body>
+    </html>
+  );
 }

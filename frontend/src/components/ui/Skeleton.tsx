@@ -193,7 +193,7 @@ export const TasksSkeleton = () => {
               <th className="py-3.5 px-2 w-28 text-right">
                 <Skeleton className="h-3 w-16 rounded ml-auto" />
               </th>
-              <th className="py-3.5 px-3 w-32 text-right">
+              <th className="sticky right-0 z-20 py-3.5 pr-4 pl-2 w-44 min-w-[165px] text-right bg-[#F4F5F7] dark:bg-slate-800">
                 <Skeleton className="h-3 w-16 rounded ml-auto" />
               </th>
             </tr>
@@ -236,7 +236,7 @@ export const TasksSkeleton = () => {
                 <td className="py-3 px-2 text-right align-middle">
                   <Skeleton className="h-3.5 w-20 rounded ml-auto" />
                 </td>
-                <td className="py-3 px-3 text-right align-middle">
+                <td className="sticky right-0 z-10 py-3 pr-4 pl-2 text-right align-middle w-44 min-w-[165px] bg-inherit">
                   <div className="flex items-center justify-end gap-1.5">
                     <Skeleton className="w-7 h-7 rounded-lg" />
                     <Skeleton className="w-7 h-7 rounded-lg" />
@@ -323,7 +323,7 @@ export const EmployeesSkeleton = ({
               <th className="py-3.5 px-3 w-32 text-center">
                 <Skeleton className="h-3 w-16 rounded mx-auto" />
               </th>
-              <th className="py-3.5 px-4 w-40 text-right">
+              <th className="sticky right-0 z-20 py-3.5 pr-4 pl-2 w-44 min-w-[168px] text-right bg-[#F4F5F7] dark:bg-slate-800">
                 <Skeleton className="h-3 w-16 rounded ml-auto" />
               </th>
             </tr>
@@ -375,7 +375,7 @@ export const EmployeesSkeleton = ({
                 </td>
 
                 {/* Actions */}
-                <td className="py-3 px-4 text-right align-middle">
+                <td className="sticky right-0 z-10 py-3 pr-4 pl-2 text-right align-middle w-44 min-w-[168px] bg-inherit">
                   <div className="flex items-center justify-end gap-1.5">
                     <Skeleton className="w-7 h-7 rounded-lg" />
                     <Skeleton className="w-7 h-7 rounded-lg" />

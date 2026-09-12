@@ -9,11 +9,13 @@ export interface User {
   dateOfBirth?: string;
   department?: string;
   role: string;
+  systemRole?: "super_admin" | "system_admin" | "admin" | "manager" | "employee";
   employeeId?: string;
   isEmailVerified: boolean;
   avatarUrl?: string;
   coverUrl?: string;
   isBlocked?: boolean;
+  isDeleted?: boolean;
   blockedAt?: string;
   blockedReason?: string;
   employmentInfo?: {
@@ -21,6 +23,7 @@ export interface User {
     workLocation?: string;
     employmentType?: string;
     manager?: string;
+    designation?: string;
   };
   compliance?: {
     panNumber?: string;
@@ -52,6 +55,18 @@ export interface User {
     weeklyDigest: boolean;
     theme: "light" | "dark" | "system";
   };
+  regionalPreferences?: {
+    language: string;
+    timezone: string;
+    dateFormat: string;
+    firstDayOfWeek: string;
+  };
+  appearancePreferences?: {
+    density: string;
+    accentColor: string;
+    sidebarBehavior: string;
+  };
+  twoFactorEnabled?: boolean;
   createdAt: string;
 }
 
@@ -63,7 +78,39 @@ export interface AssignedUser {
   avatarUrl?: string;
   department?: string;
   role?: string;
+  systemRole?: string;
   employeeId?: string;
+}
+
+export interface TaskComment {
+  _id?: string;
+  user?: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    avatarUrl?: string;
+  } | string;
+  authorName: string;
+  authorAvatar?: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface TaskChecklistItem {
+  _id?: string;
+  title: string;
+  completed: boolean;
+  completedAt?: string;
+  completedBy?: string;
+}
+
+export interface TaskActivity {
+  _id?: string;
+  action: string;
+  performedBy?: string;
+  performerName?: string;
+  timestamp: string;
+  details?: string;
 }
 
 export interface Task {
@@ -84,8 +131,35 @@ export interface Task {
   } | string;
   department?: string;
   tags?: string[];
+  isDeleted?: boolean;
+  deletedAt?: string;
+  comments?: TaskComment[];
+  checklist?: TaskChecklistItem[];
+  activityLog?: TaskActivity[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AuditLogItem {
+  _id: string;
+  actorId?: string;
+  actorName: string;
+  actorEmail: string;
+  actorRole: string;
+  action: string;
+  resourceType: "user" | "task" | "auth" | "system" | "security" | "department" | "team";
+  resourceId?: string;
+  details?: Record<string, unknown> | string;
+  ipAddress?: string;
+  userAgent?: string;
+  timestamp: string;
+}
+
+export interface AuditLogPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface NotificationItem {

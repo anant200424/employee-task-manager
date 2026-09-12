@@ -14,9 +14,46 @@ export const setAccessToken = (token: string | null): void => {
 };
 export const getAccessToken = (): string | null => accessToken;
 
-api.interceptors.request.use((config) => {
+// In-flight GET request deduplication cache to prevent identical parallel/StrictMode requests
+const inFlightGetRequests = new Map<string, Promise<any>>();
+
+const rawGet = api.get.bind(api);
+api.get = ((url: string, config?: any): Promise<any> => {
+  if (typeof window === "undefined" || (config?.headers as any)?.["x-skip-dedupe"]) {
+    return rawGet(url, config);
+  }
+  const key = `${url}::${JSON.stringify(config?.params || {})}`;
+  if (inFlightGetRequests.has(key)) {
+    return inFlightGetRequests.get(key)!;
+  }
+
+  const promise = rawGet(url, config).finally(() => {
+    // Keep in map for 400ms to coalesce concurrent component mounts and React Strict Mode double-invocations
+    setTimeout(() => {
+      inFlightGetRequests.delete(key);
+    }, 400);
+  });
+
+  inFlightGetRequests.set(key, promise);
+  return promise;
+}) as any;
+
+api.interceptors.request.use(async (config) => {
+  // If a refresh is currently in flight, await it before proceeding
+  if (refreshPromise) {
+    try {
+      await refreshPromise;
+    } catch {
+      // ignore
+    }
+  }
+
   if (accessToken && config.headers) {
-    config.headers.Authorization = `Bearer ${accessToken}`;
+    if (typeof (config.headers as any).set === "function") {
+      (config.headers as any).set("Authorization", `Bearer ${accessToken}`);
+    } else {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
   }
   return config;
 });
@@ -35,20 +72,15 @@ export const refreshAccessToken = async (): Promise<string | null> => {
         {},
         { withCredentials: true },
       );
-      const newToken = res.data?.data?.accessToken as string;
       const user = res.data?.data?.user;
-      if (newToken) {
-        setAccessToken(newToken);
-        if (user && typeof window !== "undefined") {
-          localStorage.setItem("nexus_user", JSON.stringify(user));
-        }
-        return newToken;
+      const newToken = (res.data?.data?.accessToken as string) || "cookie_session";
+      if (res.data?.data?.accessToken) {
+        setAccessToken(res.data.data.accessToken);
       }
-      setAccessToken(null);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("nexus_user");
+      if (user && typeof window !== "undefined") {
+        localStorage.setItem("nexus_user", JSON.stringify(user));
       }
-      return null;
+      return newToken;
     } catch {
       setAccessToken(null);
       if (typeof window !== "undefined") {
@@ -62,6 +94,7 @@ export const refreshAccessToken = async (): Promise<string | null> => {
 
   return refreshPromise;
 };
+
 
 api.interceptors.response.use(
   (response) => response,
@@ -82,10 +115,7 @@ api.interceptors.response.use(
         setAccessToken(null);
         if (typeof window !== "undefined") {
           localStorage.removeItem("nexus_user");
-          if (
-            !window.location.pathname.includes("/login") &&
-            !window.location.pathname.includes("/admin-login")
-          ) {
+          if (!window.location.pathname.includes("/login")) {
             window.location.href = "/login?blocked=1";
           }
         }
@@ -93,8 +123,21 @@ api.interceptors.response.use(
       }
     }
 
-    // Do not attempt refresh on the refresh endpoint itself
-    if (originalRequest?.url?.includes("/auth/refresh")) {
+    // Do not attempt refresh on the refresh or logout endpoints
+    if (
+      originalRequest?.url?.includes("/auth/refresh") ||
+      originalRequest?.url?.includes("/auth/logout")
+    ) {
+      return Promise.reject(error);
+    }
+
+    // If user has explicitly logged out (no nexus_user in storage and no token in memory), do not resurrect session
+    const hasActiveSession =
+      typeof window !== "undefined"
+        ? Boolean(localStorage.getItem("nexus_user"))
+        : Boolean(accessToken);
+
+    if (!hasActiveSession) {
       return Promise.reject(error);
     }
 
@@ -108,7 +151,11 @@ api.interceptors.response.use(
       const newToken = await refreshAccessToken();
       if (newToken) {
         if (originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          if (typeof (originalRequest.headers as any).set === "function") {
+            (originalRequest.headers as any).set("Authorization", `Bearer ${newToken}`);
+          } else {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          }
         }
         return api(originalRequest);
       }
@@ -137,4 +184,44 @@ export const extractApiError = (error: unknown): ApiErrorShape => {
   return {
     message: "Network error. Please check your connection and try again.",
   };
+};
+
+/**
+ * Enterprise Task API Client
+ */
+export const taskApi = {
+  getTasks: (params?: Record<string, any>) =>
+    api.get("/tasks", { params }).then((res) => res.data?.data?.tasks || []),
+  createTask: (data: Record<string, any>) =>
+    api.post("/tasks", data).then((res) => res.data?.data?.task),
+  updateTask: (id: string, data: Record<string, any>) =>
+    api.patch(`/tasks/${id}`, data).then((res) => res.data?.data?.task),
+  deleteTask: (id: string) =>
+    api.delete(`/tasks/${id}`).then((res) => res.data),
+  restoreTask: (id: string) =>
+    api.post(`/tasks/${id}/restore`).then((res) => res.data?.data?.task),
+  addComment: (id: string, text: string) =>
+    api.post(`/tasks/${id}/comments`, { text }).then((res) => res.data?.data?.comment),
+  addChecklistItem: (id: string, title: string) =>
+    api.post(`/tasks/${id}/checklist`, { title }).then((res) => res.data?.data),
+  toggleChecklistItem: (id: string, itemId: string) =>
+    api.patch(`/tasks/${id}/checklist/${itemId}`).then((res) => res.data?.data),
+};
+
+/**
+ * Enterprise Audit API Client
+ */
+export const auditApi = {
+  getAuditLogs: (params?: Record<string, any>) =>
+    api.get("/audit-logs", { params }).then((res) => res.data?.data),
+  getAuditActions: () =>
+    api.get("/audit-logs/actions").then((res) => res.data?.data?.actions || []),
+};
+
+/**
+ * Enterprise User Management API Client
+ */
+export const userAdminApi = {
+  updateUserRole: (id: string, systemRole: string, roleTitle?: string) =>
+    api.patch(`/users/${id}`, { systemRole, ...(roleTitle ? { role: roleTitle } : {}) }).then((res) => res.data?.data?.user),
 };

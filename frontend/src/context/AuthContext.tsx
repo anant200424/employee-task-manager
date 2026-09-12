@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   ReactNode,
 } from "react";
@@ -46,8 +47,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (typeof window !== "undefined") {
       if (newUser) {
         localStorage.setItem("nexus_user", JSON.stringify(newUser));
+        document.cookie = "nexus_session=1; path=/; max-age=604800; SameSite=Lax";
       } else {
         localStorage.removeItem("nexus_user");
+        localStorage.removeItem("nexus_cached_tasks");
+        document.cookie = "nexus_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
       }
     }
   }, []);
@@ -63,10 +67,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const savedUser = getStoredUser();
       if (savedUser) {
         setUserState(savedUser);
-      } else {
+        if (typeof window !== "undefined") {
+          document.cookie = "nexus_session=1; path=/; max-age=604800; SameSite=Lax";
+        }
+      }
+      try {
         const meRes = await api.get("/users/me");
         const freshUser = meRes.data?.data?.user || null;
-        setUser(freshUser);
+        if (freshUser) {
+          setUser(freshUser);
+        }
+      } catch {
+        if (!savedUser) {
+          setUser(null);
+        }
       }
     } catch {
       setUser(null);
@@ -79,54 +93,78 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = useCallback(async () => {
     try {
       await api.post("/auth/logout");
+    } catch (err) {
+      console.warn("Server logout notification:", err);
     } finally {
       setAccessToken(null);
-      setUser(null);
+      setUserState(null);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("nexus_user");
+        localStorage.removeItem("nexus_cached_tasks");
+        sessionStorage.clear();
+        document.cookie = "nexus_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+        window.location.replace("/login");
+      }
     }
-  }, [setUser]);
+  }, []);
 
+  // Multi-tab synchronization: if any tab logs out, sync immediately
   useEffect(() => {
-    refreshSession();
-  }, [refreshSession]);
-
-  // Periodic and tab-focus check to enforce immediate logout if admin blocks employee
-  useEffect(() => {
-    if (!user) return;
-
-    const verifyStatus = async () => {
-      try {
-        const res = await api.get("/users/me");
-        const fresh = res.data?.data?.user;
-        if (fresh?.isBlocked) {
-          await logout();
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "nexus_user") {
+        if (!e.newValue) {
+          setAccessToken(null);
+          setUserState(null);
           if (typeof window !== "undefined") {
-            window.location.href = "/login?blocked=1";
-          }
-        }
-      } catch (err: any) {
-        if (err.response?.status === 403 || err.response?.status === 401) {
-          const msg = String(err.response?.data?.message || "").toLowerCase();
-          if (
-            msg.includes("blocked") ||
-            msg.includes("deactivated") ||
-            msg.includes("suspended")
-          ) {
-            await logout();
-            if (typeof window !== "undefined") {
-              window.location.href = "/login?blocked=1";
+            document.cookie = "nexus_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+            const path = window.location.pathname;
+            const isPublicAuth =
+              path.startsWith("/login") ||
+              path === "/" ||
+              path.startsWith("/home") ||
+              path.startsWith("/register") ||
+              path.startsWith("/forgot-password") ||
+              path.startsWith("/reset-password");
+            if (!isPublicAuth) {
+              window.location.replace("/login");
             }
+          }
+        } else {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            setUserState(parsed);
+            if (typeof window !== "undefined") {
+              document.cookie = "nexus_session=1; path=/; max-age=604800; SameSite=Lax";
+            }
+          } catch {
+            // ignore
           }
         }
       }
     };
 
-    window.addEventListener("focus", verifyStatus);
-    const interval = setInterval(verifyStatus, 15000);
-    return () => {
-      window.removeEventListener("focus", verifyStatus);
-      clearInterval(interval);
-    };
-  }, [user, logout]);
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  const isInitialRefreshDone = useRef(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = getStoredUser();
+      if (saved) {
+        document.cookie = "nexus_session=1; path=/; max-age=604800; SameSite=Lax";
+      } else {
+        document.cookie = "nexus_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+      }
+    }
+    if (!isInitialRefreshDone.current) {
+      isInitialRefreshDone.current = true;
+      refreshSession();
+    }
+  }, [refreshSession]);
+
+
 
   return (
     <AuthContext.Provider

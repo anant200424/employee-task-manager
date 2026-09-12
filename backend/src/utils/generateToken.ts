@@ -20,6 +20,29 @@ export const generateRefreshToken = (payload: TokenPayload): string => {
   });
 };
 
+// Sets the access token as a secure, httpOnly cookie to prevent XSS token theft
+export const setAccessTokenCookie = (res: Response, token: string): void => {
+  const isProd = process.env.NODE_ENV === "production";
+  res.cookie("accessToken", token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "strict" : "lax",
+    path: "/",
+    maxAge: 15 * 60 * 1000, // 15 minutes
+  });
+};
+
+export const clearAccessTokenCookie = (res: Response): void => {
+  const isProd = process.env.NODE_ENV === "production";
+  res.clearCookie("accessToken", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "strict" : "lax",
+    path: "/",
+  });
+  res.clearCookie("accessToken");
+};
+
 // Sets the refresh token as a secure, httpOnly cookie so it can never be
 // read or exfiltrated via client-side JavaScript (mitigates XSS token theft).
 export const setRefreshTokenCookie = (res: Response, token: string): void => {
@@ -41,4 +64,12 @@ export const clearRefreshTokenCookie = (res: Response): void => {
     sameSite: isProd ? "strict" : "lax",
     path: "/api/auth",
   });
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "strict" : "lax",
+    path: "/",
+  });
+  res.clearCookie("refreshToken");
 };
+

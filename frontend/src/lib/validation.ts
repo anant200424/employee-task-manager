@@ -117,10 +117,10 @@ export const validateFirstName = (value: string): string | undefined => {
 };
 
 export const validateEmail = (value: string): string | undefined => {
-  const email = value.trim();
+  const email = (value || "").trim();
 
   if (!email) {
-    return "Please enter a valid email address.";
+    return "Please enter your email address.";
   }
 
   // No spaces
@@ -128,24 +128,51 @@ export const validateEmail = (value: string): string | undefined => {
     return "Email address cannot contain spaces.";
   }
 
-  // Only one @ is allowed
-  if ((email.match(/@/g) || []).length !== 1) {
-    return "Please enter a valid email address.";
-  }
-
-  // No consecutive full stops
+  // Check for consecutive dots
   if (email.includes("..")) {
-    return "Email address cannot contain consecutive dots.";
+    return "Email address cannot contain consecutive dots (..).";
   }
 
   // Cannot start or end with a dot
   if (email.startsWith(".") || email.endsWith(".")) {
-    return "Please enter a valid email address.";
+    return "Email address cannot start or end with a dot.";
+  }
+
+  // Must contain an @ symbol
+  if (!email.includes("@")) {
+    return "Email address must include an '@' symbol.";
+  }
+
+  // Only one @ is allowed
+  if ((email.match(/@/g) || []).length !== 1) {
+    return "Email address can only contain one '@' symbol.";
+  }
+
+  // Cannot have dot immediately adjacent to @
+  if (email.includes(".@") || email.includes("@.")) {
+    return "Email address cannot have a dot immediately adjacent to '@'.";
+  }
+
+  const [localPart, domainPart] = email.split("@");
+
+  if (!localPart || localPart.length === 0) {
+    return "Please enter the username part before '@'.";
+  }
+
+  if (!domainPart || !domainPart.includes(".")) {
+    return "Please include a valid domain (e.g. company.com).";
+  }
+
+  const domainSubparts = domainPart.split(".");
+  const tld = domainSubparts[domainSubparts.length - 1];
+
+  if (!tld || tld.length < 2 || !/^[a-zA-Z]+$/.test(tld)) {
+    return "Please enter a valid domain extension (e.g. .com, .org, .io).";
   }
 
   // Complete email format validation
   if (!EMAIL_REGEX.test(email)) {
-    return "Please enter a valid email address.";
+    return "Please enter a valid email address format.";
   }
 
   return undefined;
@@ -274,23 +301,47 @@ export const validatePassword = (value: string): string | undefined => {
   return undefined;
 };
 
-export const validateDepartment = (value: string): string | undefined => {
-  if (!value || !value.trim()) {
-    return "Please select your department.";
+export const validateDepartment = (dept: string): string | undefined => {
+  const trimmed = (dept || "").trim();
+  if (!trimmed) {
+    return "Department is required.";
+  }
+  if (trimmed.length < 2) {
+    return "Department name must be at least 2 characters.";
+  }
+  if (trimmed.length > 50) {
+    return "Department name cannot exceed 50 characters.";
   }
   return undefined;
 };
 
-export const validateRole = (value: string): string | undefined => {
-  if (!value || !value.trim()) {
-    return "Please select your role.";
+export const validateRole = (role: string): string | undefined => {
+  const trimmed = (role || "").trim();
+  if (!trimmed) {
+    return "Role / Job title is required.";
+  }
+  if (trimmed.length < 2) {
+    return "Role title must be at least 2 characters.";
+  }
+  if (trimmed.length > 60) {
+    return "Role title cannot exceed 60 characters.";
   }
   return undefined;
 };
 
-export const validateEmployeeId = (value: string): string | undefined => {
-  if (!value || !value.trim()) {
-    return "Please enter your employee ID.";
+export const validateEmployeeId = (empId: string): string | undefined => {
+  const trimmed = (empId || "").trim();
+  if (!trimmed) {
+    return "Employee ID is required.";
+  }
+  if (trimmed.length < 3) {
+    return "Employee ID must be at least 3 characters.";
+  }
+  if (trimmed.length > 25) {
+    return "Employee ID cannot exceed 25 characters.";
+  }
+  if (!/^[A-Za-z0-9-_]+$/.test(trimmed)) {
+    return "Employee ID can only contain letters, numbers, hyphens and underscores.";
   }
   return undefined;
 };
@@ -347,9 +398,11 @@ export const validateRegisterForm = (
     errors.role = roleErr;
   }
 
-  const empIdErr = validateEmployeeId(data.employeeId);
-  if (empIdErr) {
-    errors.employeeId = empIdErr;
+  if (data.employeeId && data.employeeId.trim()) {
+    const empIdErr = validateEmployeeId(data.employeeId);
+    if (empIdErr) {
+      errors.employeeId = empIdErr;
+    }
   }
 
   const dobErr = validateDateOfBirth(data.dateOfBirth);
@@ -386,10 +439,16 @@ export const validateLoginForm = (
 
   if (emailErr) {
     errors.email = emailErr;
+  } else if (data.email.length > 254) {
+    errors.email = "Email cannot exceed 254 characters.";
   }
 
   if (!data.password) {
     errors.password = "Please enter your password.";
+  } else if (data.password.length > 100) {
+    errors.password = "Password cannot exceed 100 characters.";
+  } else if (data.password.length < 8) {
+    errors.password = "Password must be at least 8 characters.";
   }
 
   return errors;
@@ -414,3 +473,120 @@ export const validateResetPasswordForm = (
 
   return errors;
 };
+
+/**
+ * Professional Task & Employee Validations
+ */
+export const validateTaskTitle = (title: string): string | undefined => {
+  const trimmed = (title || "").trim();
+  if (!trimmed) {
+    return "Task title is required.";
+  }
+  if (trimmed.length < 3) {
+    return "Task title must be at least 3 characters.";
+  }
+  if (trimmed.length > 120) {
+    return "Task title cannot exceed 120 characters.";
+  }
+  if (/^[^a-zA-Z0-9]+$/.test(trimmed)) {
+    return "Task title must contain alphanumeric characters.";
+  }
+  return undefined;
+};
+
+export const validateTaskDescription = (desc: string): string | undefined => {
+  if (desc && desc.length > 3000) {
+    return "Task description cannot exceed 3,000 characters.";
+  }
+  return undefined;
+};
+
+export const validateTaskDueDate = (dueDate: string): string | undefined => {
+  if (!dueDate) {
+    return "Task due date is required.";
+  }
+  const date = new Date(dueDate);
+  if (isNaN(date.getTime())) {
+    return "Please provide a valid due date.";
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  if (target < today) {
+    return "Due date cannot be in the past.";
+  }
+  const tenYearsFromNow = new Date(today.getFullYear() + 10, today.getMonth(), today.getDate());
+  if (target > tenYearsFromNow) {
+    return "Due date cannot be more than 10 years in the future.";
+  }
+  return undefined;
+};
+
+export const validateAssignees = (assignees: string[]): string | undefined => {
+  if (!assignees || assignees.length === 0) {
+    return "Please select at least one employee assignee.";
+  }
+  return undefined;
+};
+
+export const validatePanNumber = (pan: string): string | undefined => {
+  const trimmed = (pan || "").trim().toUpperCase();
+  if (!trimmed) return undefined;
+  if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(trimmed)) {
+    return "Enter a valid 10-character Indian PAN (e.g. ABCDE1234F).";
+  }
+  return undefined;
+};
+
+export const validateAadharNumber = (aadhar: string): string | undefined => {
+  const clean = (aadhar || "").trim().replace(/\s+/g, "");
+  if (!clean) return undefined;
+  if (!/^[0-9]{12}$/.test(clean)) {
+    return "Enter a valid 12-digit Aadhaar number.";
+  }
+  return undefined;
+};
+
+export const validateUanNumber = (uan: string): string | undefined => {
+  const clean = (uan || "").trim().replace(/\s+/g, "");
+  if (!clean) return undefined;
+  if (!/^[0-9]{12}$/.test(clean)) {
+    return "Enter a valid 12-digit Universal Account Number (UAN).";
+  }
+  return undefined;
+};
+
+export const validateSalaryField = (value: number | string, label: string): string | undefined => {
+  if (value === "" || value === undefined || value === null) {
+    return `${label} is required.`;
+  }
+  const num = typeof value === "string" ? Number(value) : value;
+  if (isNaN(num)) {
+    return `${label} must be a valid number.`;
+  }
+  if (num < 0) {
+    return `${label} cannot be negative.`;
+  }
+  if (num > 100000000) {
+    return `${label} cannot exceed ₹10,00,00,000.`;
+  }
+  return undefined;
+};
+
+export const validateManagerName = (manager: string): string | undefined => {
+  const trimmed = (manager || "").trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length < 2) {
+    return "Manager name must be at least 2 characters.";
+  }
+  if (trimmed.length > 60) {
+    return "Manager name cannot exceed 60 characters.";
+  }
+  if (!/^[A-Za-z\s.'-]+$/.test(trimmed)) {
+    return "Manager name can only contain letters, spaces, hyphens and dots.";
+  }
+  return undefined;
+};
+
+

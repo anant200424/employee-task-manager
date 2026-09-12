@@ -4,6 +4,11 @@ import { useState } from "react";
 import { ShieldCheck, CheckCircle2, AlertCircle, Edit2, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { api, extractApiError } from "@/lib/api";
+import {
+  validatePanNumber,
+  validateAadharNumber,
+  validateUanNumber,
+} from "@/lib/validation";
 
 export const ComplianceTab = () => {
   const { user, setUser } = useAuth();
@@ -14,28 +19,79 @@ export const ComplianceTab = () => {
   const [uanNumber, setUanNumber] = useState(user?.compliance?.uanNumber || "");
   const [taxRegime, setTaxRegime] = useState<"old" | "new">(user?.compliance?.taxRegime || "new");
   
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const validateField = (name: string, value: string): string | undefined => {
+    switch (name) {
+      case "panNumber":
+        return validatePanNumber(value);
+      case "aadharNumber":
+        return validateAadharNumber(value);
+      case "uanNumber":
+        return validateUanNumber(value);
+      default:
+        return undefined;
+    }
+  };
+
+  const handleBlur = (name: string) => {
+    let val = "";
+    if (name === "panNumber") val = panNumber;
+    else if (name === "aadharNumber") val = aadharNumber;
+    else if (name === "uanNumber") val = uanNumber;
+
+    const err = validateField(name, val);
+    setFormErrors((prev) => ({
+      ...prev,
+      [name]: err || "",
+    }));
+  };
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+
+    const panErr = validateField("panNumber", panNumber);
+    if (panErr) errs.panNumber = panErr;
+
+    const aadharErr = validateField("aadharNumber", aadharNumber);
+    if (aadharErr) errs.aadharNumber = aadharErr;
+
+    const uanErr = validateField("uanNumber", uanNumber);
+    if (uanErr) errs.uanNumber = uanErr;
+
+    setFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(null);
+
+    if (!validate()) {
+      setMsg({ type: "error", text: "Please fix the validation errors before saving." });
+      return;
+    }
+
     setSaving(true);
     
     try {
       const res = await api.patch("/users/me", {
         compliance: {
-          panNumber,
-          aadharNumber,
-          uanNumber,
+          panNumber: panNumber.trim().toUpperCase(),
+          aadharNumber: aadharNumber.trim().replace(/\s+/g, ""),
+          uanNumber: uanNumber.trim().replace(/\s+/g, ""),
           taxRegime
         }
       });
       setUser(res.data.data.user);
       setMsg({ type: "success", text: "Compliance information updated successfully." });
       setIsEditing(false);
+      setFormErrors({});
     } catch (err) {
-      const { message } = extractApiError(err);
+      const { message, errors } = extractApiError(err);
+      if (errors) setFormErrors((prev) => ({ ...prev, ...errors }));
       setMsg({ type: "error", text: message });
     } finally {
       setSaving(false);
@@ -77,6 +133,7 @@ export const ComplianceTab = () => {
                 setAadharNumber(user?.compliance?.aadharNumber || "");
                 setUanNumber(user?.compliance?.uanNumber || "");
                 setTaxRegime(user?.compliance?.taxRegime || "new");
+                setFormErrors({});
               }}
               className="px-4 py-2 rounded-xl bg-white text-slate-600 font-bold text-[13px] hover:bg-slate-50 border border-slate-200 shadow-sm transition-all flex items-center gap-2"
             >
@@ -136,18 +193,88 @@ export const ComplianceTab = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5">PAN Number</label>
-              <input type="text" value={panNumber} onChange={(e) => setPanNumber(e.target.value.toUpperCase())} placeholder="ABCDE1234F" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono uppercase text-slate-800 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+              <input
+                type="text"
+                value={panNumber}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase();
+                  setPanNumber(val);
+                  if (formErrors.panNumber) {
+                    const liveErr = validateField("panNumber", val);
+                    setFormErrors((prev) => ({ ...prev, panNumber: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("panNumber")}
+                placeholder="ABCDE1234F"
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono uppercase text-slate-800 outline-none transition-all ${
+                  formErrors.panNumber
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                }`}
+              />
+              {formErrors.panNumber && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.panNumber}</span>
+                </p>
+              )}
             </div>
             <div>
-              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Aadhar Number</label>
-              <input type="text" value={aadharNumber} onChange={(e) => setAadharNumber(e.target.value)} placeholder="1234 5678 9012" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+              <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Aadhaar Number</label>
+              <input
+                type="text"
+                value={aadharNumber}
+                onChange={(e) => {
+                  setAadharNumber(e.target.value);
+                  if (formErrors.aadharNumber) {
+                    const liveErr = validateField("aadharNumber", e.target.value);
+                    setFormErrors((prev) => ({ ...prev, aadharNumber: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("aadharNumber")}
+                placeholder="12-digit Aadhaar"
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono text-slate-800 outline-none transition-all ${
+                  formErrors.aadharNumber
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                }`}
+              />
+              {formErrors.aadharNumber && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.aadharNumber}</span>
+                </p>
+              )}
             </div>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5">UAN Number</label>
-              <input type="text" value={uanNumber} onChange={(e) => setUanNumber(e.target.value)} placeholder="100XXXXXXXXX" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[14px] font-bold font-mono text-slate-800 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+              <input
+                type="text"
+                value={uanNumber}
+                onChange={(e) => {
+                  setUanNumber(e.target.value);
+                  if (formErrors.uanNumber) {
+                    const liveErr = validateField("uanNumber", e.target.value);
+                    setFormErrors((prev) => ({ ...prev, uanNumber: liveErr || "" }));
+                  }
+                }}
+                onBlur={() => handleBlur("uanNumber")}
+                placeholder="12-digit UAN"
+                className={`w-full rounded-xl border px-4 py-3 text-[14px] font-bold font-mono text-slate-800 outline-none transition-all ${
+                  formErrors.uanNumber
+                    ? "border-red-500 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                    : "border-slate-300 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                }`}
+              />
+              {formErrors.uanNumber && (
+                <p className="text-[12px] font-bold text-red-600 flex items-center gap-1 mt-1.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formErrors.uanNumber}</span>
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5">Tax Regime</label>
@@ -168,3 +295,4 @@ export const ComplianceTab = () => {
     </form>
   );
 };
+

@@ -15,16 +15,16 @@ export const ProtectedRoute = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    if (mounted && !isLoading && !isAuthenticated) {
+    if (mounted && !isLoading && (!isAuthenticated || !user)) {
       router.replace("/login");
       const timer = setTimeout(() => {
         if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-          window.location.href = "/login";
+          window.location.replace("/login");
         }
-      }, 300);
+      }, 50);
       return () => clearTimeout(timer);
     }
-  }, [mounted, isLoading, isAuthenticated, router]);
+  }, [mounted, isLoading, isAuthenticated, user, router]);
 
   // Security guard: If employee is blocked by admin, lock them out completely
   if (mounted && user?.isBlocked) {
@@ -48,13 +48,29 @@ export const ProtectedRoute = ({ children }: { children: ReactNode }) => {
           <button
             onClick={async () => {
               await logout();
-              router.replace("/login");
+              if (typeof window !== "undefined") {
+                window.location.replace("/login");
+              }
             }}
             className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-extrabold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95"
           >
             <LogOut className="w-4 h-4" />
             <span>Sign Out</span>
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Prevent hydration mismatch & block unauthorized access: render loading / redirect state
+  if (!mounted || isLoading || !isAuthenticated || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F4F6FA] dark:bg-[#0B0F17]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-9 w-9 rounded-full border-3 border-[#5B5FEF] border-t-transparent animate-spin" />
+          <p className="text-xs font-bold text-slate-400 tracking-wider uppercase">
+            {!mounted || isLoading ? "Loading Workspace..." : "Redirecting to login..."}
+          </p>
         </div>
       </div>
     );

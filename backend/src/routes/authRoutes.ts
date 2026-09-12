@@ -5,8 +5,10 @@ import {
   refresh,
   logout,
   forgotPassword,
+  verifyResetOtp,
   resetPassword,
   changePassword,
+  terminateOtherSessions,
   startRegistration,
   verifyOtp,
   resendEmailOtp,
@@ -18,6 +20,7 @@ import {
   registerSchema,
   loginSchema,
   forgotPasswordSchema,
+  verifyResetOtpSchema,
   resetPasswordSchema,
   changePasswordSchema,
   verifyOtpSchema,
@@ -61,6 +64,24 @@ router.post(
   forgotPassword,
 );
 router.post(
+  "/verify-reset-otp",
+  authLimiter,
+  validate(verifyResetOtpSchema),
+  verifyResetOtp,
+);
+router.post(
+  "/resend-forgot-password-otp",
+  authLimiter,
+  validate(forgotPasswordSchema),
+  forgotPassword,
+);
+router.post(
+  "/reset-password",
+  authLimiter,
+  validate(resetPasswordSchema),
+  resetPassword,
+);
+router.post(
   "/reset-password/:token",
   authLimiter,
   validate(resetPasswordSchema),
@@ -71,6 +92,11 @@ router.patch(
   protect,
   validate(changePasswordSchema),
   changePassword,
+);
+router.post(
+  "/terminate-other-sessions",
+  protect,
+  terminateOtherSessions,
 );
 
 export default router;

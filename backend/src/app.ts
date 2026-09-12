@@ -5,42 +5,26 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import hpp from "hpp";
+import path from "path";
 
 import authRoutes from "./routes/authRoutes";
 import userRoutes from "./routes/userRoutes";
 import taskRoutes from "./routes/taskRoutes";
 import messageRoutes from "./routes/messageRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import auditRoutes from "./routes/auditRoutes";
+import projectRoutes from "./routes/projectRoutes";
 import { notFound, errorHandler } from "./middleware/errorHandler";
 
 const app: Application = express();
 
-// Security headers
-app.use(helmet());
+// Security headers - permit cross-origin resources between port 3000 and 5000
+app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// CORS — allow the configured client origin and local development origins
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:3001",
-].filter(Boolean) as string[];
-
+// CORS — grant full access for port 3000, port 5000, and all local/network clients
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        origin.startsWith("http://localhost:") ||
-        origin.startsWith("http://127.0.0.1:")
-      ) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
+    origin: true,
     credentials: true,
   }),
 );
@@ -55,6 +39,9 @@ app.use(mongoSanitize());
 // Prevent HTTP parameter pollution
 app.use(hpp());
 
+// Serve static uploaded files (avatars, covers, documents)
+app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+
 if (process.env.NODE_ENV !== "production") {
   app.use(morgan("dev"));
 }
@@ -68,6 +55,8 @@ app.use("/api/users", userRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/audit-logs", auditRoutes);
+app.use("/api/projects", projectRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

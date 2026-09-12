@@ -12,19 +12,23 @@ import { sendSuccess } from "../utils/ApiResponse";
 import {
   generateAccessToken,
   generateRefreshToken,
+  setAccessTokenCookie,
+  clearAccessTokenCookie,
   setRefreshTokenCookie,
   clearRefreshTokenCookie,
 } from "../utils/generateToken";
+import { uploadImageToCloudinary } from "../config/cloudinary";
 
 import {
   sendEmail,
-  passwordResetEmailTemplate,
+  passwordResetOtpEmailTemplate,
   otpVerificationEmailTemplate,
 } from "../services/email.service";
 
 import { sendSms, verifySmsOtp } from "../services/sms.service";
 import { generateOTP, hashOTP, verifyOTP } from "../services/otp.service";
 import { AuthRequest } from "../middleware/auth";
+import { recordAuditLog } from "../services/auditService";
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_TIME_MS = 15 * 60 * 1000; // 15 minutes
@@ -70,6 +74,31 @@ export const register = async (
 
     const dialCode = `+${getCountryCallingCode(countryCode)}`;
 
+    let cleanRole = role ? String(role).trim() : "Software Engineer";
+    if (/admin|super|system_admin|manager/i.test(cleanRole)) {
+      cleanRole = "Software Engineer";
+    }
+
+    let cleanAvatarUrl = "";
+    if (avatarUrl && typeof avatarUrl === "string") {
+      if (avatarUrl.startsWith("data:image/")) {
+        const cloudRes = await uploadImageToCloudinary(avatarUrl, "empsphere/avatars", "reg-avatar");
+        cleanAvatarUrl = cloudRes.url;
+      } else {
+        cleanAvatarUrl = avatarUrl.trim();
+      }
+    }
+
+    let cleanCoverUrl = "";
+    if (coverUrl && typeof coverUrl === "string") {
+      if (coverUrl.startsWith("data:image/")) {
+        const cloudRes = await uploadImageToCloudinary(coverUrl, "empsphere/covers", "reg-cover");
+        cleanCoverUrl = cloudRes.url;
+      } else {
+        cleanCoverUrl = coverUrl.trim();
+      }
+    }
+
     const user = await User.create({
       firstName,
       lastName,
@@ -78,13 +107,14 @@ export const register = async (
       dialCode,
       phoneNumber,
       department: department || "Engineering",
-      role: role || "Software Engineer",
+      role: cleanRole,
+      systemRole: "employee",
       employeeId:
         employeeId || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       dateOfBirth,
       password,
-      avatarUrl: avatarUrl || "",
-      coverUrl: coverUrl || "",
+      avatarUrl: cleanAvatarUrl,
+      coverUrl: cleanCoverUrl,
     });
 
     const accessToken = generateAccessToken({
@@ -103,6 +133,7 @@ export const register = async (
       validateBeforeSave: false,
     });
 
+    setAccessTokenCookie(res, accessToken);
     setRefreshTokenCookie(res, refreshToken);
 
     sendSuccess(
@@ -111,7 +142,6 @@ export const register = async (
       "Account created successfully. Welcome to EmpSphere!",
       {
         user,
-        accessToken,
       },
     );
   } catch (error) {
@@ -172,6 +202,14 @@ export const login = async (
         validateBeforeSave: false,
       });
 
+      await recordAuditLog({
+        req,
+        action: "LOGIN_FAILED",
+        resourceType: "auth",
+        actor: { email },
+        details: { reason: "Invalid password", attempts: user.loginAttempts },
+      });
+
       throw new ApiError(401, "Invalid email or password.");
     }
 
@@ -198,13 +236,25 @@ export const login = async (
       validateBeforeSave: false,
     });
 
+    setAccessTokenCookie(res, accessToken);
     setRefreshTokenCookie(res, refreshToken);
 
     const safeUser = await User.findById(user.id);
 
+    await recordAuditLog({
+      req,
+      action: "LOGIN_SUCCESS",
+      resourceType: "auth",
+      actor: {
+        id: user.id,
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
+        role: user.role,
+      },
+    });
+
     sendSuccess(res, 200, "Logged in successfully.", {
       user: safeUser,
-      accessToken,
     });
   } catch (error) {
     next(error);
@@ -279,10 +329,10 @@ export const refresh = async (
       validateBeforeSave: false,
     });
 
+    setAccessTokenCookie(res, newAccessToken);
     setRefreshTokenCookie(res, newRefreshToken);
 
     sendSuccess(res, 200, "Session refreshed.", {
-      accessToken: newAccessToken,
       user,
     });
   } catch (error) {
@@ -290,6 +340,7 @@ export const refresh = async (
       return next(error);
     }
 
+    clearAccessTokenCookie(res);
     clearRefreshTokenCookie(res);
 
     next(
@@ -314,21 +365,57 @@ export const logout = async (
 ): Promise<void> => {
   try {
     const token = req.cookies?.refreshToken;
+    let userId: string | null = null;
 
     if (token) {
       const decoded = jwt.decode(token) as {
         userId: string;
       } | null;
-
       if (decoded?.userId) {
-        await User.findByIdAndUpdate(decoded.userId, {
+        userId = decoded.userId;
+      }
+    }
+
+    // Fallback: check access token in Authorization header
+    if (!userId && req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const accessToken = req.headers.authorization.split(" ")[1];
+        const decodedAccess = jwt.decode(accessToken) as {
+          userId: string;
+        } | null;
+        if (decodedAccess?.userId) {
+          userId = decodedAccess.userId;
+        }
+      } catch {
+        // ignore decode errors
+      }
+    }
+
+    if (userId) {
+      if (token) {
+        await User.findByIdAndUpdate(userId, {
           $pull: {
             refreshTokens: token,
           },
         });
+      } else {
+        // Invalidate all refresh tokens for this session user
+        await User.findByIdAndUpdate(userId, {
+          $set: {
+            refreshTokens: [],
+          },
+        });
       }
+
+      await recordAuditLog({
+        req,
+        action: "LOGOUT",
+        resourceType: "auth",
+        actor: { id: userId },
+      });
     }
 
+    clearAccessTokenCookie(res);
     clearRefreshTokenCookie(res);
 
     sendSuccess(res, 200, "Logged out successfully.");
@@ -350,34 +437,38 @@ export const forgotPassword = async (
 ): Promise<void> => {
   try {
     const { email } = req.body;
+    const normalizedEmail = (email || "").toLowerCase().trim();
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizedEmail });
 
-    // Always respond the same way, whether or not the account exists,
-    // to avoid leaking which emails are registered (user enumeration).
+    // Anti-enumeration: Return generic message if user doesn't exist
     const genericMessage =
-      "If an account exists for this email, a password reset link has been sent.";
+      "If an account exists for this email, a 6-digit verification code has been sent.";
 
     if (!user) {
       sendSuccess(res, 200, genericMessage);
       return;
     }
 
-    const resetToken = user.createPasswordResetToken();
+    // Generate secure 6-digit OTP and store SHA-256 hash
+    const otp = generateOTP();
+    const hashedOtp = hashOTP(otp);
+
+    user.passwordResetToken = hashedOtp;
+    // OTP valid for 10 minutes
+    user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     await user.save({
       validateBeforeSave: false,
     });
 
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
-
     try {
       await sendEmail({
         to: user.email,
-        subject: "Reset your Nexus password",
-        html: passwordResetEmailTemplate(
+        subject: "EmpSphere - Password Reset Verification Code",
+        html: passwordResetOtpEmailTemplate(
           user.firstName,
-          resetUrl,
+          otp,
         ),
       });
     } catch {
@@ -390,7 +481,7 @@ export const forgotPassword = async (
 
       throw new ApiError(
         500,
-        "Could not send password reset email. Please try again later.",
+        "Could not send password reset verification code. Please try again later.",
       );
     }
 
@@ -402,8 +493,47 @@ export const forgotPassword = async (
 
 
 // ============================================================
+// VERIFY RESET OTP
+// POST /api/auth/verify-reset-otp
+// ============================================================
+
+export const verifyResetOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { email, otp } = req.body;
+    const normalizedEmail = (email || "").toLowerCase().trim();
+    const hashedOtp = hashOTP((otp || "").trim());
+
+    const user = await User.findOne({
+      email: normalizedEmail,
+      passwordResetToken: hashedOtp,
+      passwordResetExpires: {
+        $gt: new Date(),
+      },
+    }).select("+passwordResetToken +passwordResetExpires");
+
+    if (!user) {
+      // Check if code has expired
+      const userExists = await User.findOne({ email: normalizedEmail }).select("+passwordResetExpires");
+      if (userExists && userExists.passwordResetExpires && userExists.passwordResetExpires <= new Date()) {
+        throw new ApiError(400, "Verification code has expired. Please request a new code.");
+      }
+      throw new ApiError(400, "Invalid verification code. Please check and try again.");
+    }
+
+    sendSuccess(res, 200, "Verification code confirmed successfully.");
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+// ============================================================
 // RESET PASSWORD
-// POST /api/auth/reset-password/:token
+// POST /api/auth/reset-password (or /:token for legacy link)
 // ============================================================
 
 export const resetPassword = async (
@@ -413,25 +543,49 @@ export const resetPassword = async (
 ): Promise<void> => {
   try {
     const { token } = req.params;
-    const { password } = req.body;
+    const { email, otp, password } = req.body;
 
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(token)
-      .digest("hex");
+    let user;
 
-    const user = await User.findOne({
-      passwordResetToken: hashedToken,
-      passwordResetExpires: {
-        $gt: new Date(),
-      },
-    }).select("+passwordResetToken +passwordResetExpires");
+    if (email && otp) {
+      const normalizedEmail = email.toLowerCase().trim();
+      const hashedOtp = hashOTP((otp || "").trim());
 
-    if (!user) {
-      throw new ApiError(
-        400,
-        "This password reset link is invalid or has expired.",
-      );
+      user = await User.findOne({
+        email: normalizedEmail,
+        passwordResetToken: hashedOtp,
+        passwordResetExpires: {
+          $gt: new Date(),
+        },
+      }).select("+passwordResetToken +passwordResetExpires");
+
+      if (!user) {
+        throw new ApiError(
+          400,
+          "Invalid or expired verification code. Please request a new code.",
+        );
+      }
+    } else if (token) {
+      const hashedToken = crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+      user = await User.findOne({
+        passwordResetToken: hashedToken,
+        passwordResetExpires: {
+          $gt: new Date(),
+        },
+      }).select("+passwordResetToken +passwordResetExpires");
+
+      if (!user) {
+        throw new ApiError(
+          400,
+          "This password reset link is invalid or has expired.",
+        );
+      }
+    } else {
+      throw new ApiError(400, "Missing reset verification credentials.");
     }
 
     user.password = password;
@@ -480,10 +634,20 @@ export const changePassword = async (
 
     if (!isMatch) {
       throw new ApiError(
-        401,
-        "Current password is incorrect.",
+        400,
+        "The current password you entered is incorrect.",
         {
-          currentPassword: "Current password is incorrect.",
+          currentPassword: "The current password you entered is incorrect.",
+        },
+      );
+    }
+
+    if (currentPassword === newPassword) {
+      throw new ApiError(
+        400,
+        "New password must be different from current password.",
+        {
+          newPassword: "New password must be different from current password.",
         },
       );
     }
@@ -500,6 +664,30 @@ export const changePassword = async (
       200,
       "Password changed successfully. Please log in again.",
     );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================
+// TERMINATE OTHER SESSIONS
+// POST /api/auth/terminate-other-sessions
+// Authenticated
+// ============================================================
+
+export const terminateOtherSessions = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const user = await User.findById(req.user?.id).select("+refreshTokens");
+    if (!user) throw new ApiError(404, "User not found.");
+
+    user.refreshTokens = [];
+    await user.save();
+
+    sendSuccess(res, 200, "All other device sessions have been terminated.");
   } catch (error) {
     next(error);
   }
@@ -550,10 +738,12 @@ export const startRegistration = async (
     const emailOtp = generateOTP();
     const emailOtpHash = hashOTP(emailOtp);
 
+    const phoneOtp = generateOTP();
+    const phoneOtpHash = hashOTP(phoneOtp);
+
     const now = Date.now();
-    const emailOtpExpires = new Date(
-      now + 5 * 60 * 1000,
-    ); // 5 mins
+    const emailOtpExpires = new Date(now + 5 * 60 * 1000); // 5 mins
+    const phoneOtpExpires = new Date(now + 5 * 60 * 1000); // 5 mins
 
     const bcrypt = require("bcryptjs");
 
@@ -568,6 +758,31 @@ export const startRegistration = async (
 
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
+    let cleanRole = role ? String(role).trim() : "Software Engineer";
+    if (/admin|super|system_admin|manager/i.test(cleanRole)) {
+      cleanRole = "Software Engineer";
+    }
+
+    let cleanAvatarUrl = "";
+    if (avatarUrl && typeof avatarUrl === "string") {
+      if (avatarUrl.startsWith("data:image/")) {
+        const cloudRes = await uploadImageToCloudinary(avatarUrl, "empsphere/avatars", "draft-avatar");
+        cleanAvatarUrl = cloudRes.url;
+      } else {
+        cleanAvatarUrl = avatarUrl.trim();
+      }
+    }
+
+    let cleanCoverUrl = "";
+    if (coverUrl && typeof coverUrl === "string") {
+      if (coverUrl.startsWith("data:image/")) {
+        const cloudRes = await uploadImageToCloudinary(coverUrl, "empsphere/covers", "draft-cover");
+        cleanCoverUrl = cloudRes.url;
+      } else {
+        cleanCoverUrl = coverUrl.trim();
+      }
+    }
+
     await PendingRegistration.create({
       firstName,
       lastName,
@@ -576,30 +791,53 @@ export const startRegistration = async (
       dialCode,
       phoneNumber,
       department: department || "Engineering",
-      role: role || "Software Engineer",
+      role: cleanRole,
       employeeId:
         employeeId || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       dateOfBirth,
       passwordHash,
-      avatarUrl: avatarUrl || "",
-      coverUrl: coverUrl || "",
+      avatarUrl: cleanAvatarUrl,
+      coverUrl: cleanCoverUrl,
       verificationToken,
       emailOtpHash,
+      phoneOtpHash,
       emailOtpExpires,
+      phoneOtpExpires,
       emailOtpAttempts: 0,
       phoneOtpAttempts: 0,
       isDraftAllowed: Boolean(allowSaveDraft),
     });
 
-    await Promise.all([
+    const fullPhone = dialCode + phoneNumber;
+
+    const [_, smsResult] = await Promise.all([
       sendEmail({
         to: email,
         subject: "EmpSphere - Verify your email",
         html: otpVerificationEmailTemplate(emailOtp),
       }),
 
-      sendSms(dialCode + phoneNumber),
+      sendSms(fullPhone),
     ]);
+
+    // If SMS could not be delivered to carrier (e.g. Twilio Trial restriction), dispatch Phone OTP to email backup
+    if (!smsResult.success) {
+      await sendEmail({
+        to: email,
+        subject: "EmpSphere - Your Phone Verification Code (SMS Backup)",
+        html: `<div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #4355cc; margin-bottom: 8px;">EmpSphere Mobile Verification</h2>
+          <p style="color: #475569; font-size: 14px;">You are registering with mobile number <strong>${fullPhone}</strong>.</p>
+          <p style="color: #475569; font-size: 14px;">Your 6-digit Phone Verification OTP is:</p>
+          <div style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1e293b; padding: 16px; background: #f8fafc; border: 2px dashed #cbd5e1; text-align: center; border-radius: 8px; margin: 16px 0;">
+            ${phoneOtp}
+          </div>
+          <p style="color: #64748b; font-size: 12px; margin-top: 16px;">
+            Delivered to your email as an automatic carrier backup for unverified trial phones. Valid for 5 minutes.
+          </p>
+        </div>`,
+      });
+    }
 
     sendSuccess(
       res,
@@ -698,6 +936,7 @@ export const verifyOtp = async (
         ];
 
         await existingUser.save({ validateBeforeSave: false });
+        setAccessTokenCookie(res, accessToken);
         setRefreshTokenCookie(res, refreshToken);
 
         sendSuccess(
@@ -706,7 +945,6 @@ export const verifyOtp = async (
           "Account verified and created successfully!",
           {
             user: existingUser,
-            accessToken,
           },
         );
         return;
@@ -766,15 +1004,25 @@ export const verifyOtp = async (
     isEmailValid = true;
 
 
-    // Check Phone OTP via Twilio Verify
-
+    // Check Phone OTP via Twilio Verify or local hash fallback
     const fullPhoneNumber =
       pending.dialCode + pending.phoneNumber;
 
-    const isPhoneVerified = await verifySmsOtp(
-      fullPhoneNumber,
-      phoneOtp,
-    );
+    let isPhoneVerified = false;
+    try {
+      isPhoneVerified = await verifySmsOtp(
+        fullPhoneNumber,
+        phoneOtp,
+      );
+    } catch {
+      isPhoneVerified = false;
+    }
+
+    if (!isPhoneVerified && pending.phoneOtpHash) {
+      if (verifyOTP(phoneOtp, pending.phoneOtpHash)) {
+        isPhoneVerified = true;
+      }
+    }
 
     if (!isPhoneVerified) {
       pending.phoneOtpAttempts += 1;
@@ -792,6 +1040,11 @@ export const verifyOtp = async (
     // Both OTPs are valid — create the real user
 
     if (isEmailValid && isPhoneValid) {
+      let cleanRole = pending.role || "Software Engineer";
+      if (/admin|super|system_admin|manager/i.test(cleanRole)) {
+        cleanRole = "Software Engineer";
+      }
+
       const userObj = {
         firstName: pending.firstName,
         lastName: pending.lastName,
@@ -800,7 +1053,9 @@ export const verifyOtp = async (
         dialCode: pending.dialCode,
         phoneNumber: pending.phoneNumber,
         department: pending.department,
-        role: pending.role,
+        role: cleanRole,
+        systemRole: "employee",
+        isDeleted: false,
         employeeId: pending.employeeId,
         dateOfBirth: pending.dateOfBirth,
         avatarUrl: pending.avatarUrl,
@@ -826,6 +1081,18 @@ export const verifyOtp = async (
         );
       }
 
+      await recordAuditLog({
+        req,
+        action: "USER_REGISTERED",
+        resourceType: "auth",
+        actor: {
+          id: savedUser.id,
+          name: `${savedUser.firstName} ${savedUser.lastName}`,
+          email: savedUser.email,
+          role: savedUser.role,
+        },
+      });
+
       const accessToken = generateAccessToken({
         userId: savedUser.id,
         role: savedUser.role,
@@ -842,6 +1109,10 @@ export const verifyOtp = async (
         validateBeforeSave: false,
       });
 
+      setAccessTokenCookie(
+        res,
+        accessToken,
+      );
       setRefreshTokenCookie(
         res,
         refreshToken,
@@ -857,7 +1128,6 @@ export const verifyOtp = async (
         "Account verified and created successfully!",
         {
           user: savedUser,
-          accessToken,
         },
       );
     }
@@ -942,13 +1212,32 @@ export const resendPhoneOtp = async (
       );
     }
 
+    const phoneOtp = generateOTP();
+    pending.phoneOtpHash = hashOTP(phoneOtp);
+    pending.phoneOtpExpires = new Date(Date.now() + 5 * 60 * 1000);
     pending.phoneOtpAttempts = 0;
 
     await pending.save();
 
-    await sendSms(
-      pending.dialCode + pending.phoneNumber,
-    );
+    const fullPhone = pending.dialCode + pending.phoneNumber;
+    const smsResult = await sendSms(fullPhone);
+
+    if (!smsResult.success) {
+      await sendEmail({
+        to: email,
+        subject: "EmpSphere - Your Phone Verification Code (SMS Backup)",
+        html: `<div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #4355cc; margin-bottom: 8px;">EmpSphere Mobile Verification</h2>
+          <p style="color: #475569; font-size: 14px;">Your 6-digit Phone Verification OTP for <strong>${fullPhone}</strong> is:</p>
+          <div style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1e293b; padding: 16px; background: #f8fafc; border: 2px dashed #cbd5e1; text-align: center; border-radius: 8px; margin: 16px 0;">
+            ${phoneOtp}
+          </div>
+          <p style="color: #64748b; font-size: 12px; margin-top: 16px;">
+            Delivered to your email as an automatic carrier backup. Valid for 5 minutes.
+          </p>
+        </div>`,
+      });
+    }
 
     sendSuccess(
       res,

@@ -7,6 +7,9 @@ export interface AuthRequest extends Request {
   user?: {
     id: string;
     role: string;
+    systemRole?: string;
+    email?: string;
+    department?: string;
   };
 }
 
@@ -19,7 +22,7 @@ export const protect = async (
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith("Bearer ")
       ? authHeader.split(" ")[1]
-      : undefined;
+      : req.cookies?.accessToken;
 
     if (!token) {
       throw new ApiError(
@@ -47,6 +50,13 @@ export const protect = async (
       );
     }
 
+    if (currentUser.isDeleted) {
+      throw new ApiError(
+        403,
+        "This account has been deactivated or removed from the workspace."
+      );
+    }
+
     if (currentUser.passwordChangedAt) {
       const changedTimestamp = Math.floor(
         currentUser.passwordChangedAt.getTime() / 1000,
@@ -66,7 +76,29 @@ export const protect = async (
       );
     }
 
-    req.user = { id: currentUser.id, role: currentUser.role || "employee" };
+    let derivedSystemRole = currentUser.systemRole;
+    if (!derivedSystemRole) {
+      const roleLower = String(currentUser.role || "").toLowerCase().trim();
+      if (roleLower === "super_admin" || roleLower === "super administrator") {
+        derivedSystemRole = "super_admin";
+      } else if (roleLower === "system_admin" || roleLower === "system administrator") {
+        derivedSystemRole = "system_admin";
+      } else if (roleLower === "admin" || roleLower === "administrator") {
+        derivedSystemRole = "admin";
+      } else if (roleLower === "manager") {
+        derivedSystemRole = "manager";
+      } else {
+        derivedSystemRole = "employee";
+      }
+    }
+
+    req.user = {
+      id: currentUser.id,
+      role: currentUser.role || "Software Engineer",
+      systemRole: derivedSystemRole,
+      email: currentUser.email,
+      department: currentUser.department || "Engineering",
+    };
     next();
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
@@ -84,7 +116,22 @@ export const authenticate = protect;
 export const restrictTo =
   (...roles: string[]) =>
   (req: AuthRequest, _res: Response, next: NextFunction): void => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user) {
+      return next(
+        new ApiError(401, "Authentication required."),
+      );
+    }
+
+    const userSystemRole = (req.user.systemRole || "employee").toLowerCase().trim();
+
+    // Super Admin has universal administrative permission across all protected routes
+    if (userSystemRole === "super_admin") {
+      return next();
+    }
+
+    const normalizedRequired = roles.map((r) => r.toLowerCase().trim());
+    const hasRole = normalizedRequired.includes(userSystemRole);
+    if (!hasRole) {
       return next(
         new ApiError(403, "You do not have permission to perform this action."),
       );

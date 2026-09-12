@@ -87,6 +87,7 @@ export const VerifyOtpForm = ({ email }: VerifyOtpFormProps) => {
       setEmailCooldown(30);
       setExpiryTime(5 * 60);
       setEmailOtp("");
+      toast.success("A new email verification code has been dispatched!");
     } catch (err) {
       setError(extractApiError(err).message);
     } finally {
@@ -103,6 +104,7 @@ export const VerifyOtpForm = ({ email }: VerifyOtpFormProps) => {
       setPhoneCooldown(30);
       setExpiryTime(5 * 60);
       setPhoneOtp("");
+      toast.success("A new mobile verification code has been dispatched!");
     } catch (err) {
       setError(extractApiError(err).message);
     } finally {

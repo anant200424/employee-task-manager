@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import dns from "dns";
 
 export const connectDB = async (): Promise<void> => {
   const uri = process.env.MONGO_URI;
@@ -8,6 +9,15 @@ export const connectDB = async (): Promise<void> => {
       "[Database] MONGO_URI is not defined in environment variables.",
     );
     process.exit(1);
+  }
+
+  // Ensure reliable DNS resolution for MongoDB Atlas SRV records on Windows
+  if (uri.startsWith("mongodb+srv://")) {
+    try {
+      dns.setServers(["8.8.8.8", "1.1.1.1"]);
+    } catch (e) {
+      console.warn("[Database] Custom DNS setup skipped:", e);
+    }
   }
 
   try {

@@ -1,5 +1,31 @@
 import mongoose, { Document, Model, Schema } from "mongoose";
 
+export interface ITaskComment {
+  _id?: mongoose.Types.ObjectId;
+  user: mongoose.Types.ObjectId;
+  authorName: string;
+  authorAvatar?: string;
+  text: string;
+  createdAt: Date;
+}
+
+export interface ITaskChecklistItem {
+  _id?: mongoose.Types.ObjectId;
+  title: string;
+  completed: boolean;
+  completedAt?: Date;
+  completedBy?: mongoose.Types.ObjectId;
+}
+
+export interface ITaskActivity {
+  _id?: mongoose.Types.ObjectId;
+  action: string;
+  performedBy?: mongoose.Types.ObjectId;
+  performerName?: string;
+  timestamp: Date;
+  details?: string;
+}
+
 export interface ITask extends Document {
   taskCode: string;
   title: string;
@@ -11,6 +37,12 @@ export interface ITask extends Document {
   createdBy?: mongoose.Types.ObjectId;
   department?: string;
   tags: string[];
+  isDeleted?: boolean;
+  deletedAt?: Date;
+  deletedBy?: mongoose.Types.ObjectId;
+  comments: ITaskComment[];
+  checklist: ITaskChecklistItem[];
+  activityLog: ITaskActivity[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,7 +66,7 @@ const taskSchema = new Schema<ITask>(
       type: String,
       default: "",
       trim: true,
-      maxlength: [500, "Description cannot exceed 500 characters"],
+      maxlength: [3000, "Description cannot exceed 3,000 characters"],
     },
     status: {
       type: String,
@@ -70,6 +102,44 @@ const taskSchema = new Schema<ITask>(
       type: [String],
       default: [],
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+    comments: [
+      {
+        user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+        authorName: { type: String, required: true },
+        authorAvatar: { type: String, default: "" },
+        text: { type: String, required: true, trim: true },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    checklist: [
+      {
+        title: { type: String, required: true, trim: true },
+        completed: { type: Boolean, default: false },
+        completedAt: { type: Date },
+        completedBy: { type: Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
+    activityLog: [
+      {
+        action: { type: String, required: true },
+        performedBy: { type: Schema.Types.ObjectId, ref: "User" },
+        performerName: { type: String, default: "User" },
+        timestamp: { type: Date, default: Date.now },
+        details: { type: String, default: "" },
+      },
+    ],
   },
   { timestamps: true },
 );

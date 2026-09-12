@@ -9,6 +9,16 @@ module.exports = {
   ],
   theme: {
     extend: {
+      spacing: {
+        '4.5': '1.125rem',
+        '5.5': '1.375rem',
+        '6.5': '1.625rem',
+        '7.5': '1.875rem',
+        '8.5': '2.125rem',
+        '9.5': '2.375rem',
+        '18': '4.5rem',
+        '22': '5.5rem',
+      },
       colors: {
         brand: {
           50: "#EEF2FF",

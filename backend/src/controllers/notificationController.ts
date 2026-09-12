@@ -86,22 +86,14 @@ export const markNotificationRead = async (
       ? { $in: [userId, new mongoose.Types.ObjectId(userId)] }
       : userId;
 
-    let notification = await Notification.findOneAndUpdate(
+    const notification = await Notification.findOneAndUpdate(
       { _id: id, recipient: recipientFilter },
       { $set: { read: true } },
       { new: true },
     );
 
-    if (!notification && mongoose.Types.ObjectId.isValid(id)) {
-      notification = await Notification.findByIdAndUpdate(
-        id,
-        { $set: { read: true } },
-        { new: true },
-      );
-    }
-
     if (!notification) {
-      throw new ApiError(404, "Notification not found.");
+      throw new ApiError(404, "Notification not found or access denied.");
     }
 
     sendSuccess(res, 200, "Notification marked as read.", { notification });
@@ -159,17 +151,13 @@ export const deleteNotification = async (
       ? { $in: [userId, new mongoose.Types.ObjectId(userId)] }
       : userId;
 
-    let notification = await Notification.findOneAndDelete({
+    const notification = await Notification.findOneAndDelete({
       _id: id,
       recipient: recipientFilter,
     });
 
-    if (!notification && mongoose.Types.ObjectId.isValid(id)) {
-      notification = await Notification.findByIdAndDelete(id);
-    }
-
     if (!notification) {
-      throw new ApiError(404, "Notification not found.");
+      throw new ApiError(404, "Notification not found or access denied.");
     }
 
     sendSuccess(res, 200, "Notification deleted successfully.", { id });

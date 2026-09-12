@@ -6,11 +6,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Edit2,
-  Briefcase,
-  Building2,
   Mail,
   Phone,
-  Calendar,
   CheckCircle2,
   Clock,
   ListTodo,
@@ -18,10 +15,13 @@ import {
   Loader2,
   Lock,
   Unlock,
+  Award,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Task } from "@/types/auth";
 import { toast } from "react-hot-toast";
+import { SendEmailModal } from "./SendEmailModal";
+import { useAuth } from "@/context/AuthContext";
 
 interface EmployeeDetailModalProps {
   isOpen: boolean;
@@ -38,9 +38,24 @@ export const EmployeeDetailModal = ({
   onUserUpdated,
   onEdit,
 }: EmployeeDetailModalProps) => {
+  const { user: currentUser } = useAuth();
+  const isCallerSuperAdmin =
+    currentUser?.systemRole === "super_admin" ||
+    String(currentUser?.role || "").toLowerCase().includes("super") ||
+    currentUser?.email === "superadmin@empsphere.io" ||
+    currentUser?.email === "anantsingh20334411@gmail.com";
+
+  const isCallerSystemAdmin =
+    currentUser?.systemRole === "system_admin" ||
+    String(currentUser?.role || "").toLowerCase().includes("system");
+
+  const canManageRoles = isCallerSuperAdmin || isCallerSystemAdmin;
+
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   const fetchPerformance = async () => {
     if (!userId) return;
@@ -63,11 +78,33 @@ export const EmployeeDetailModal = ({
     }
   }, [isOpen, userId]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !userId) return null;
 
   const user = data?.user;
   const stats = data?.stats;
   const tasks: Task[] = data?.tasks || [];
+
+  const formatRoleTitle = (roleStr?: string) => {
+    if (!roleStr) return "Staff Contributor";
+    const trimmed = roleStr.trim();
+    const lower = trimmed.toLowerCase();
+    if (lower === "admin") return "Administrator";
+    if (lower === "system_admin" || lower === "sysadmin") return "System Administrator";
+    if (lower === "super_admin" || lower === "superadmin") return "Super Administrator";
+    if (lower === "manager") return "Manager";
+    if (lower === "employee" || lower === "staff") return "Staff Contributor";
+    return trimmed;
+  };
 
   const handleToggleBlock = async () => {
     if (!user) return;
@@ -91,9 +128,78 @@ export const EmployeeDetailModal = ({
     }
   };
 
+  const handleToggleManagerRole = async () => {
+    if (!user) return;
+    if (!canManageRoles) {
+      toast.error("Enterprise Governance Lock: Only administrators have authority to appoint or change employee roles.");
+      return;
+    }
+    const sysRole = String(user.systemRole || "").toLowerCase();
+    const roleStr = String(user.role || "").toLowerCase();
+    if (sysRole === "admin" || sysRole === "system_admin" || roleStr.includes("admin") || roleStr.includes("super")) {
+      toast.error("Manager promotion is not applicable for Administrator accounts.");
+      return;
+    }
+
+    try {
+      setPromoting(true);
+      const isAlreadyManager =
+        sysRole === "manager" ||
+        (sysRole !== "employee" && (roleStr.includes("manager") || roleStr.includes("lead")));
+
+      let nextRole = "Software Engineer";
+      const dept = (user.department || "").toLowerCase();
+      if (!isAlreadyManager) {
+        // Appointing as manager
+        if (dept.includes("eng")) nextRole = "Engineering Manager";
+        else if (dept.includes("des")) nextRole = "Design Lead";
+        else if (dept.includes("prod")) nextRole = "Product Manager";
+        else if (dept.includes("hr") || dept.includes("human")) nextRole = "HR Manager";
+        else if (dept.includes("mark")) nextRole = "Marketing Manager";
+        else if (dept.includes("fin")) nextRole = "Finance Manager";
+        else if (dept.includes("oper")) nextRole = "Operations Manager";
+        else nextRole = "Department Manager";
+      } else {
+        // Reverting to staff contributor
+        if (dept.includes("eng")) nextRole = "Software Engineer";
+        else if (dept.includes("des")) nextRole = "UI/UX Designer";
+        else if (dept.includes("prod")) nextRole = "Business Analyst";
+        else if (dept.includes("hr") || dept.includes("human")) nextRole = "HR Specialist";
+        else if (dept.includes("mark")) nextRole = "Marketing Specialist";
+        else if (dept.includes("fin")) nextRole = "Financial Analyst";
+        else if (dept.includes("oper")) nextRole = "Operations Coordinator";
+        else nextRole = "Software Engineer";
+      }
+      const nextSystemRole = isAlreadyManager ? "employee" : "manager";
+
+      await api.patch(`/users/${user._id}`, {
+        role: nextRole,
+        systemRole: nextSystemRole,
+      });
+
+      toast.success(
+        isAlreadyManager
+          ? `${user.firstName} reassigned to Staff Contributor.`
+          : `🎉 ${user.firstName} successfully appointed as Department Manager!`
+      );
+      await fetchPerformance();
+      onUserUpdated();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to update member role.");
+    } finally {
+      setPromoting(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-[28px] max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-slate-900 rounded-[28px] max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200"
+      >
         {/* Header Bar */}
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-800/40">
           <div className="flex items-center gap-3">
@@ -145,42 +251,75 @@ export const EmployeeDetailModal = ({
                     : "bg-slate-50 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800"
                 }`}
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-black shrink-0 overflow-hidden border-2 border-white shadow-xs">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-black shrink-0 overflow-hidden border-2 border-white dark:border-slate-800 shadow-xs">
                       {user.avatarUrl ? (
                         <img src={user.avatarUrl} alt={user.firstName} className="w-full h-full object-cover" />
                       ) : (
                         `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase()
                       )}
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-[17px] font-black text-slate-900 dark:text-white">
+                        <h3 className="text-[17px] font-black text-slate-900 dark:text-white truncate">
                           {user.firstName} {user.lastName}
                         </h3>
                         {user.isBlocked ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-red-500 text-white shadow-xs">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-red-500 text-white shadow-xs shrink-0">
                             BLOCKED / SUSPENDED
                           </span>
                         ) : (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-emerald-500 text-white shadow-xs">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-emerald-500 text-white shadow-xs shrink-0">
                             ACTIVE
                           </span>
                         )}
                       </div>
-                      <p className="text-[12.5px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
-                        {user.role} · {user.department || "General"} · <span className="font-mono">{user.employeeId}</span>
+                      <p className="text-[12.5px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5 truncate">
+                        {formatRoleTitle(user.role)} · {user.department || "General"} · <span className="font-mono">{user.employeeId}</span>
                       </p>
                       <div className="flex items-center gap-3 text-[12px] text-slate-500 mt-1 flex-wrap">
-                        <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" />{user.email}</span>
-                        {user.phoneNumber && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" />{user.dialCode} {user.phoneNumber}</span>}
+                        <span className="flex items-center gap-1 shrink-0"><Mail className="w-3 h-3 text-slate-400 shrink-0" />{user.email}</span>
+                        {user.phoneNumber && <span className="flex items-center gap-1 shrink-0"><Phone className="w-3 h-3 text-slate-400 shrink-0" />{(user.dialCode && user.phoneNumber.includes(user.dialCode)) ? user.phoneNumber : `${user.dialCode || ""} ${user.phoneNumber}`.trim()}</span>}
                       </div>
                     </div>
                   </div>
 
-                  {/* Actions: Edit & Block */}
-                  <div className="flex items-center gap-2">
+                  {/* Actions: Appoint Manager, Edit, Email & Block */}
+                  <div className="flex items-center gap-2 flex-wrap md:justify-end shrink-0">
+                    {/* Appoint / Revert Department Manager Action Button (Super Admin & System Admin Governance) */}
+                    {canManageRoles && !String(user.systemRole || "").includes("admin") && !String(user.role || "").toLowerCase().includes("admin") && (() => {
+                      const isCurrentManager =
+                        user.systemRole === "manager" ||
+                        (user.systemRole !== "employee" && (user.role?.toLowerCase().includes("manager") || user.role?.toLowerCase().includes("lead")));
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={handleToggleManagerRole}
+                          disabled={promoting}
+                          className={`px-3 py-2 rounded-xl text-[12px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95 disabled:opacity-50 shrink-0 ${
+                            isCurrentManager
+                              ? "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-200/90 dark:border-amber-800/60"
+                              : "bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/90 dark:border-emerald-800/60"
+                          }`}
+                          title={
+                            isCurrentManager
+                              ? "Revert Manager to Staff Member"
+                              : "Appoint as Department Manager"
+                          }
+                        >
+                          {promoting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Award className="w-4 h-4 text-amber-500" />
+                          )}
+                          <span>
+                            {isCurrentManager ? "Revert to Staff" : "Appoint Manager"}
+                          </span>
+                        </button>
+                      );
+                    })()}
                     {onEdit && (
                       <button
                         onClick={() => {
@@ -194,14 +333,14 @@ export const EmployeeDetailModal = ({
                               department: user.department,
                               employeeId: user.employeeId,
                               email: user.email,
-                              phone: `${user.dialCode || ""} ${user.phoneNumber || ""}`.trim(),
+                              phone: (user.dialCode && user.phoneNumber?.includes(user.dialCode)) ? user.phoneNumber : `${user.dialCode || ""} ${user.phoneNumber || ""}`.trim(),
                               status: user.isBlocked ? "Blocked" : "Active",
                               isBlocked: Boolean(user.isBlocked),
                               avatarUrl: user.avatarUrl,
                             });
                           }
                         }}
-                        className="px-3.5 py-2.5 rounded-xl text-[13px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
+                        className="px-3 py-2 rounded-xl text-[12px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 shrink-0"
                         title="Edit Employee Credentials"
                       >
                         <Edit2 className="w-4 h-4 text-sky-500" />
@@ -209,15 +348,26 @@ export const EmployeeDetailModal = ({
                       </button>
                     )}
 
+                    {/* Send Email Action Button */}
+                    <button
+                      onClick={() => setIsEmailModalOpen(true)}
+                      className="px-3 py-2 rounded-xl text-[12px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all bg-purple-50 dark:bg-purple-950/40 border border-purple-200/90 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 shrink-0"
+                      title="Send Direct Email to Employee via SMTP"
+                    >
+                      <Mail className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      <span>Email</span>
+                    </button>
+
                     {/* Block / Unblock Action Button */}
                     <button
                       onClick={handleToggleBlock}
                       disabled={actionLoading}
-                      className={`px-4 py-2.5 rounded-xl text-[13px] font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-all active:scale-95 disabled:opacity-50 shrink-0 ${
+                      className={`px-3.5 py-2 rounded-xl text-[12px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95 disabled:opacity-50 shrink-0 ${
                         user.isBlocked
                           ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                           : "bg-rose-600 hover:bg-rose-700 text-white"
                       }`}
+                      title={user.isBlocked ? "Restore Employee Access" : "Suspend / Block Employee"}
                     >
                       {actionLoading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -235,6 +385,7 @@ export const EmployeeDetailModal = ({
                     </button>
                   </div>
                 </div>
+
 
                 {user.isBlocked && user.blockedReason && (
                   <div className="mt-3.5 pt-3 border-t border-rose-200/60 dark:border-rose-900/40 text-[12px] text-rose-700 dark:text-rose-300 font-medium">
@@ -341,6 +492,25 @@ export const EmployeeDetailModal = ({
           )}
         </div>
       </div>
+
+      {/* Send Email Modal */}
+      {user && (
+        <SendEmailModal
+          isOpen={isEmailModalOpen}
+          onClose={() => setIsEmailModalOpen(false)}
+          recipients={[
+            {
+              id: user._id,
+              name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+              email: user.email,
+              role: user.role,
+              department: user.department,
+              employeeId: user.employeeId,
+              avatarUrl: user.avatarUrl,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };

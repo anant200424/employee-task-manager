@@ -2,6 +2,7 @@
 
 import { Topbar } from "@/components/dashboard/Topbar";
 import { Download, FileText, ChevronRight } from "lucide-react";
+import { toast } from "react-hot-toast";
 
 const mockPayslips = [
   { id: 1, period: "September 2026", date: "Sep 30, 2026", gross: "$8,500.00", net: "$6,240.50", status: "Paid" },
@@ -12,7 +13,7 @@ const mockPayslips = [
 
 export default function PayslipsPage() {
   return (
-    <div className="min-h-screen bg-transparent pb-12">
+    <div className="min-h-screen bg-transparent pb-12 transition-colors duration-300">
       <Topbar
         title="Payslips & Compensation"
         subtitle="Access your salary slips, tax documents, and compensation details."
@@ -34,7 +35,10 @@ export default function PayslipsPage() {
            </div>
            
            <div className="relative z-10 shrink-0">
-             <button onClick={() => alert("Downloading PDF (Mock)...")} className="bg-white hover:bg-slate-50 text-[#5B5FEF] px-8 py-4 rounded-xl text-[14px] font-extrabold shadow-lg transition-all flex items-center gap-3 cursor-pointer">
+             <button
+               onClick={() => toast.success("Downloading September 2026 Payslip PDF...")}
+               className="bg-white hover:bg-slate-50 text-[#5B5FEF] px-8 py-4 rounded-xl text-[14px] font-extrabold shadow-lg transition-all flex items-center gap-3 cursor-pointer active:scale-95"
+             >
                <Download className="w-5 h-5" />
                Download PDF
              </button>
@@ -49,42 +53,48 @@ export default function PayslipsPage() {
         </div>
 
         {/* Payslip History */}
-        <div className="bg-white rounded-[24px] shadow-sm border border-slate-100 overflow-hidden mt-6">
-           <div className="px-8 py-6 border-b border-slate-100">
-              <h3 className="text-[18px] font-extrabold text-slate-900">Payslip History</h3>
-              <p className="text-[13px] text-slate-500 font-medium mt-1">Review and download past salary slips.</p>
+        <div className="bg-white dark:bg-slate-900 rounded-[24px] shadow-sm border border-slate-200/90 dark:border-slate-800 overflow-hidden mt-6">
+           <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-[18px] font-extrabold text-slate-900 dark:text-white">Payslip History</h3>
+              <p className="text-[13px] text-slate-500 dark:text-slate-400 font-medium mt-1">Review and download past salary slips.</p>
            </div>
            
-           <div className="divide-y divide-slate-100">
+           <div className="divide-y divide-slate-100 dark:divide-slate-800">
              {mockPayslips.map((slip) => (
-               <div key={slip.id} className="p-6 px-8 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-slate-50/50 transition-colors group cursor-pointer">
+               <div key={slip.id} className="p-6 px-8 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors group cursor-pointer">
                   <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-[#EEF0FF] group-hover:text-[#5B5FEF] transition-colors">
+                    <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center text-slate-400 dark:text-slate-300 group-hover:bg-[#EEF0FF] dark:group-hover:bg-[#5B5FEF]/20 group-hover:text-[#5B5FEF] transition-colors">
                       <FileText className="w-6 h-6" />
                     </div>
                     <div>
-                      <h4 className="text-[16px] font-extrabold text-slate-900">{slip.period}</h4>
-                      <p className="text-[13px] font-medium text-slate-500 mt-0.5">Paid on {slip.date}</p>
+                      <h4 className="text-[16px] font-extrabold text-slate-900 dark:text-white">{slip.period}</h4>
+                      <p className="text-[13px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">Paid on {slip.date}</p>
                     </div>
                   </div>
                   
                   <div className="flex items-center gap-8 md:gap-16 justify-between md:justify-end">
                      <div>
                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Gross</p>
-                       <p className="text-[14px] font-bold text-slate-700">{slip.gross}</p>
+                       <p className="text-[14px] font-bold text-slate-700 dark:text-slate-200">{slip.gross}</p>
                      </div>
                      <div>
                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Net Pay</p>
-                       <p className="text-[14px] font-extrabold text-slate-900">{slip.net}</p>
+                       <p className="text-[14px] font-extrabold text-slate-900 dark:text-white">{slip.net}</p>
                      </div>
                      <div className="hidden sm:block">
-                        <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wide">
+                        <span className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wide">
                           {slip.status}
                         </span>
                      </div>
                      
                      <div className="flex items-center gap-3">
-                        <button onClick={(e) => { e.stopPropagation(); alert(`Downloading Payslip for ${slip.period}...`); }} className="text-slate-400 hover:text-[#5B5FEF] p-2 rounded-lg hover:bg-[#EEF0FF] transition-all cursor-pointer">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toast.success(`Downloading Payslip for ${slip.period}...`);
+                          }}
+                          className="text-slate-400 hover:text-[#5B5FEF] dark:hover:text-[#5B5FEF] p-2 rounded-lg hover:bg-[#EEF0FF] dark:hover:bg-slate-800 transition-all cursor-pointer"
+                        >
                           <Download className="w-5 h-5" />
                         </button>
                         <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-slate-500 transition-colors" />
@@ -94,8 +104,11 @@ export default function PayslipsPage() {
              ))}
            </div>
            
-           <div className="px-8 py-5 border-t border-slate-100 bg-slate-50/50 text-center">
-              <button onClick={() => alert("Loading previous year data...")} className="text-[13px] font-bold text-[#5B5FEF] hover:text-[#4F46E5] transition-colors cursor-pointer">
+           <div className="px-8 py-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 text-center">
+              <button
+                onClick={() => toast.success("Loaded 2025 archived payslips")}
+                className="text-[13px] font-bold text-[#5B5FEF] hover:text-[#4F46E5] dark:text-indigo-400 transition-colors cursor-pointer"
+              >
                  Load Previous Year (2025)
               </button>
            </div>

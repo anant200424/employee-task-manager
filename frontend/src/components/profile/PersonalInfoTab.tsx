@@ -22,6 +22,7 @@ import {
   Check,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { isAdminUser } from "@/lib/roleUtils";
 import { api, extractApiError } from "@/lib/api";
 import {
   normalizeFirstName,
@@ -1376,24 +1377,14 @@ export const PersonalInfoTab = () => {
               Permanently Delete Employee Profile
             </h3>
             <p className="text-[13px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-              {Boolean(
-                user?.role?.toLowerCase().includes("admin") ||
-                user?.role?.toLowerCase().includes("super") ||
-                ["super_admin", "system_admin", "admin"].includes(user?.systemRole || "") ||
-                user?.email === "anantsingh20334411@gmail.com"
-              )
+              {isAdminUser(user)
                 ? "Administrator and Super Administrator profiles are protected root accounts. Enterprise governance policies prevent self-deletion to maintain system stability and access continuity."
                 : "Once you delete your profile, all personal information, HR documents, active login credentials, and session tokens will be permanently erased. You will be safely unassigned from all active sprint deliverables."}
             </p>
           </div>
 
           <div className="shrink-0">
-            {Boolean(
-              user?.role?.toLowerCase().includes("admin") ||
-              user?.role?.toLowerCase().includes("super") ||
-              ["super_admin", "system_admin", "admin"].includes(user?.systemRole || "") ||
-              user?.email === "anantsingh20334411@gmail.com"
-            ) ? (
+            {isAdminUser(user) ? (
               <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[12.5px] font-extrabold border border-indigo-200 dark:border-indigo-800/60 shadow-xs">
                 <ShieldCheck className="w-4 h-4 text-[#5B5FEF]" />
                 <span>Admin Profile Protected (Root Governance)</span>

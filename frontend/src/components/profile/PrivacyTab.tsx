@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ShieldAlert, CheckCircle2, AlertCircle, FileText, Download, Trash2, Shield, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { isAdminUser } from "@/lib/roleUtils";
 import { api, extractApiError } from "@/lib/api";
 import { DeleteAccountModal } from "./DeleteAccountModal";
 
@@ -173,12 +174,7 @@ export const PrivacyTab = () => {
                 Permanently purge your employee profile, active task deliverables, and account credentials from EmpSphere.
               </p>
             </div>
-            {Boolean(
-              user?.role?.toLowerCase().includes("admin") ||
-              user?.role?.toLowerCase().includes("super") ||
-              ["super_admin", "system_admin", "admin"].includes(user?.systemRole || "") ||
-              user?.email === "anantsingh20334411@gmail.com"
-            ) ? (
+            {isAdminUser(user) ? (
               <div className="mt-auto flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[12px] font-extrabold border border-indigo-200 dark:border-indigo-800/60">
                 <ShieldCheck className="w-4 h-4 text-[#5B5FEF]" />
                 <span>Admin Profile Protected</span>

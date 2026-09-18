@@ -144,6 +144,13 @@ const taskSchema = new Schema<ITask>(
   { timestamps: true },
 );
 
+// High-performance compound indexes for active task querying, sorting, and aggregation
+taskSchema.index({ isDeleted: 1, createdAt: -1 });
+taskSchema.index({ isDeleted: 1, status: 1, createdAt: -1 });
+taskSchema.index({ isDeleted: 1, department: 1, status: 1 });
+taskSchema.index({ isDeleted: 1, "assignedTo._id": 1, status: 1 });
+taskSchema.index({ isDeleted: 1, priority: 1 });
+
 const Task: Model<ITask> =
   mongoose.models.Task || mongoose.model<ITask>("Task", taskSchema);
 

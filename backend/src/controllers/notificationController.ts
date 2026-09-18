@@ -25,8 +25,11 @@ export const getNotifications = async (
       ? { $in: [userId, new mongoose.Types.ObjectId(userId)] }
       : userId;
 
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+
     let notifications = await Notification.find({ recipient: recipientFilter })
       .sort({ createdAt: -1 })
+      .limit(limitNum)
       .lean();
 
     // If first-time user has no notifications, seed initial welcome notifications
@@ -54,10 +57,14 @@ export const getNotifications = async (
       await Notification.insertMany(seedNotifs);
       notifications = await Notification.find({ recipient: recipientFilter })
         .sort({ createdAt: -1 })
+        .limit(limitNum)
         .lean();
     }
 
-    const unreadCount = notifications.filter((n) => !n.read).length;
+    const unreadCount = await Notification.countDocuments({
+      recipient: recipientFilter,
+      read: false,
+    });
 
     sendSuccess(res, 200, "Notifications fetched successfully.", {
       notifications,

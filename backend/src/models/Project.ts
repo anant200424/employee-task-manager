@@ -84,4 +84,8 @@ const projectSchema = new Schema<IProject>(
   }
 );
 
+// Compound indexes for project filtering and sorting
+projectSchema.index({ department: 1, status: 1 });
+projectSchema.index({ status: 1, createdAt: -1 });
+
 export default mongoose.models.Project || mongoose.model<IProject>("Project", projectSchema);

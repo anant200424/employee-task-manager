@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -50,6 +50,7 @@ import {
 import { toast } from "react-hot-toast";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { useAuth } from "@/context/AuthContext";
+import { resolveSystemRole } from "@/lib/roleUtils";
 import { useLanguage } from "@/context/LanguageContext";
 import { api } from "@/lib/api";
 import { Task } from "@/types/auth";
@@ -69,6 +70,7 @@ import {
   Bar,
   AreaChart,
   Area,
+  ReferenceLine,
 } from "recharts";
 
 const RADIAN = Math.PI / 180;
@@ -104,30 +106,31 @@ const renderCustomizedPieLabel = (props: any) => {
 export const DashboardContent = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const systemRole = useMemo(() => {
-    const rawRole = (user?.role || "").toLowerCase().trim();
-    const sysRole = (user?.systemRole || "").toLowerCase().trim();
-    const email = (user?.email || "").toLowerCase().trim();
 
-    if (
-      sysRole === "super_admin" ||
-      rawRole.includes("super") ||
-      rawRole.includes("master") ||
-      email === "superadmin@empsphere.io"
-    ) {
-      return "super_admin";
-    }
-    if (sysRole === "system_admin" || rawRole.includes("system admin") || rawRole.includes("system administrator")) {
-      return "system_admin";
-    }
-    if (sysRole === "admin" || rawRole === "admin" || rawRole === "administrator") {
-      return "admin";
-    }
-    if (sysRole === "manager" || rawRole.includes("manager") || rawRole.includes("team lead")) {
-      return "manager";
-    }
-    return "employee";
-  }, [user]);
+  const translateDept = useCallback((deptName?: string): string => {
+    if (!deptName) return "";
+    const directMap: Record<string, string> = {
+      "Engineering": t("dept_engineering", "Engineering"),
+      "Design": t("dept_design", "Design"),
+      "Operations": t("dept_operations", "Operations"),
+      "Human Resources": t("dept_hr", "Human Resources"),
+      "HR": t("dept_hr", "HR"),
+      "Finance": t("dept_finance", "Finance"),
+      "Product": t("dept_product", "Product"),
+      "Marketing": t("dept_marketing", "Marketing"),
+      "Customer Support": t("dept_customer_support", "Customer Support"),
+      "QA & Testing": t("dept_qa", "QA & Testing"),
+      "QA": t("dept_qa", "QA"),
+      "Sales": t("dept_sales", "Sales"),
+      "Sales & Growth": t("dept_sales", "Sales & Growth"),
+      "Sales & Business Dev": t("dept_sales", "Sales & Business Dev"),
+      "IT & Security": t("dept_it_security", "IT & Security"),
+      "Legal & Other": t("dept_other", "Legal & Other"),
+      "Other": t("dept_other", "Other"),
+    };
+    return directMap[deptName] || deptName;
+  }, [t]);
+  const systemRole = useMemo(() => resolveSystemRole(user), [user]);
 
   const isSuperAdmin = systemRole === "super_admin";
   const isSystemAdmin = systemRole === "system_admin" || isSuperAdmin;
@@ -184,7 +187,8 @@ export const DashboardContent = () => {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [employeeChartMode, setEmployeeChartMode] = useState<"area" | "bar">("area");
-  const [adminChartMode, setAdminChartMode] = useState<"area" | "bar">("area");
+  const [adminChartMode, setAdminChartMode] = useState<"bar" | "burnup" | "trend">("bar");
+  const [resourceChartMode, setResourceChartMode] = useState<"donut" | "bars">("donut");
   const [employeeBreakdownMode, setEmployeeBreakdownMode] = useState<"status" | "priority">("status");
   const [activeEmployeeDonutIndex, setActiveEmployeeDonutIndex] = useState<number | null>(null);
 
@@ -862,20 +866,23 @@ export const DashboardContent = () => {
     return employeeFilteredTasks.slice(start, start + EMP_TASKS_PER_PAGE);
   }, [employeeFilteredTasks, employeeTaskPage, showAllEmployeeTasks]);
 
-  // Top Categories Resource & Department Allocation (Image 3 Style)
+  // Top Categories Resource & Department Allocation
   const topCategoriesData = useMemo(() => {
+    // Curated Executive Enterprise Palette: Harmonious HSL colors matching platform aesthetic
     const palette = [
-      "#1C3D6E", // Navy Blue (28%)
-      "#00C29F", // Bright Cyan Teal (25%)
-      "#9E3D89", // Violet Purple (11%)
-      "#F5A623", // Amber Orange (8%)
-      "#0284C7", // Ocean Blue (7%)
-      "#FF5376", // Coral Pink (6%)
-      "#FFD600", // Yellow (5%)
-      "#8BC34A", // Lime (4%)
-      "#00897B", // Deep Teal (4%)
-      "#4A90E2", // Steel Blue (2%)
+      "#6366F1", // Indigo (Engineering - 33%)
+      "#8B5CF6", // Violet (Design - 13%)
+      "#06B6D4", // Cyan (Operations - 9%)
+      "#10B981", // Emerald (Human Resources - 8%)
+      "#0284C7", // Sky Blue (Finance - 7%)
+      "#F59E0B", // Amber (Product - 6%)
+      "#F43F5E", // Rose (Marketing - 6%)
+      "#14B8A6", // Teal (Customer Support - 5%)
+      "#A855F7", // Purple (QA - 5%)
+      "#64748B", // Slate (Legal / Other - 8%)
     ];
+
+    const totalHeadcount = dashboardData?.totalUsers || dashboardData?.totalEmployees || 128;
 
     if (analyticsData?.departmentDistribution && analyticsData.departmentDistribution.length > 0) {
       const sorted = [...analyticsData.departmentDistribution].sort(
@@ -885,6 +892,7 @@ export const DashboardContent = () => {
       const top = sorted.slice(0, 9).map((d: any, idx: number) => ({
         name: d.name,
         value: d.value,
+        count: d.count || Math.round((d.value / 100) * totalHeadcount),
         color: palette[idx % palette.length],
       }));
 
@@ -893,7 +901,8 @@ export const DashboardContent = () => {
         top.push({
           name: "Other",
           value: remainder,
-          color: palette[9] || "#4A90E2",
+          count: Math.round((remainder / 100) * totalHeadcount),
+          color: palette[9] || "#64748B",
         });
       }
 
@@ -901,18 +910,18 @@ export const DashboardContent = () => {
     }
 
     return [
-      { name: "Chat & Messaging", value: 28, color: "#1C3D6E" },
-      { name: "Meeting Software", value: 25, color: "#00C29F" },
-      { name: "Developer", value: 11, color: "#9E3D89" },
-      { name: "Analytics", value: 8, color: "#F5A623" },
-      { name: "Project Management", value: 7, color: "#0284C7" },
-      { name: "Google Workspace", value: 6, color: "#FF5376" },
-      { name: "Email", value: 5, color: "#FFD600" },
-      { name: "Productivity & Time Tracking", value: 4, color: "#8BC34A" },
-      { name: "HR & Hiring", value: 4, color: "#00897B" },
-      { name: "Other", value: 2, color: "#4A90E2" },
+      { name: "Engineering", value: 33, count: 42, color: "#6366F1" },
+      { name: "Design", value: 13, count: 17, color: "#8B5CF6" },
+      { name: "Operations", value: 9, count: 12, color: "#06B6D4" },
+      { name: "Human Resources", value: 8, count: 10, color: "#10B981" },
+      { name: "Finance", value: 7, count: 9, color: "#0284C7" },
+      { name: "Product", value: 6, count: 8, color: "#F59E0B" },
+      { name: "Marketing", value: 6, count: 8, color: "#F43F5E" },
+      { name: "Customer Support", value: 6, count: 8, color: "#14B8A6" },
+      { name: "QA & Testing", value: 5, count: 7, color: "#A855F7" },
+      { name: "Legal & Other", value: 7, count: 9, color: "#64748B" },
     ];
-  }, [analyticsData]);
+  }, [analyticsData, dashboardData]);
 
   // Backward compatibility alias
   const adminDepartmentAllocation = topCategoriesData;
@@ -961,20 +970,21 @@ export const DashboardContent = () => {
     return items.length > 0 ? items : [{ name: "Medium Priority", value: 1, percent: 100, color: "#3B82F6", badge: "Standard", key: "medium" }];
   }, [tasks]);
 
-  // Enterprise Weekly Velocity Activity Data (Balanced & Realistic Mon–Sun)
+  // Enterprise Weekly Velocity Activity Data (Comprehensive Sprint Telemetry Mon–Sun)
   const weeklyActivityData = useMemo(() => {
     const days = [
-      { key: "Mo", label: t("days_mo") || "Mo", full: "Monday" },
-      { key: "Tu", label: t("days_tu") || "Tu", full: "Tuesday" },
-      { key: "We", label: t("days_we") || "We", full: "Wednesday" },
-      { key: "Th", label: t("days_th") || "Th", full: "Thursday" },
-      { key: "Fr", label: t("days_fr") || "Fr", full: "Friday" },
-      { key: "Sa", label: t("days_sa") || "Sa", full: "Saturday" },
-      { key: "Su", label: t("days_su") || "Su", full: "Sunday" },
+      { key: "Mo", label: t("day_mo", "Mo"), full: t("day_monday", "Monday"), phase: "Sprint Kickoff" },
+      { key: "Tu", label: t("day_tu", "Tu"), full: t("day_tuesday", "Tuesday"), phase: "Core Build" },
+      { key: "We", label: t("day_we", "We"), full: t("day_wednesday", "Wednesday"), phase: "Mid-Sprint" },
+      { key: "Th", label: t("day_th", "Th"), full: t("day_thursday", "Thursday"), phase: "Feature Freeze" },
+      { key: "Fr", label: t("day_fr", "Fr"), full: t("day_friday", "Friday"), phase: "Ship & Release" },
+      { key: "Sa", label: t("day_sa", "Sa"), full: t("day_saturday", "Saturday"), phase: "Weekend SLA" },
+      { key: "Su", label: t("day_su", "Su"), full: t("day_sunday", "Sunday"), phase: "Sprint Retro" },
     ];
     const rawCounts = days.map((d) => ({
       day: d.label,
       fullDay: d.full,
+      phase: d.phase,
       created: 0,
       completed: 0,
     }));
@@ -994,39 +1004,25 @@ export const DashboardContent = () => {
       }
     });
 
-    const totalTasksCount = tasks.length || 0;
-    const completedCount = tasks.filter((t) => t.status === "completed").length || 0;
-    const inFlightCount = tasks.filter((t) => t.status === "in_progress" || t.status === "review").length || 0;
-
-    // Safeguard: Dynamic outlier smoothing prevents artificial batch dump distortion ("Burj Khalifa" spikes)
-    // while accurately preserving raw counts in rawCreated for exact tooltips and summary metrics.
-    const createdNumbers = rawCounts.map((r) => r.created);
-    const sumCreated = createdNumbers.reduce((a, b) => a + b, 0);
-    const avgDailyCreated = sumCreated / (createdNumbers.filter((v) => v > 0).length || 1);
-    const maxVisualThreshold = Math.max(Math.round(avgDailyCreated * 2.2), 35);
-
+    let runningCreated = 0;
     let runningCompleted = 0;
-    return rawCounts.map((d, idx) => {
+
+    return rawCounts.map((d) => {
+      runningCreated += d.created;
       runningCompleted += d.completed;
-
-      // Sprint velocity profile: Mon kick-off -> Tue peak -> Wed mid-sprint -> Thu polish -> Fri ship
-      const sprintCadenceFactor = [0.65, 1.0, 0.85, 0.75, 0.60, 0.25, 0.20][idx];
-      const estimatedActiveOnDay = Math.max(
-        d.created,
-        Math.round((inFlightCount + (totalTasksCount - completedCount) * 0.4) * sprintCadenceFactor)
-      );
-
-      // Gracefully cap visual height for extreme batch dumps (>2.2x avg) so chart remains harmoniously balanced
-      const visualCreated = d.created > maxVisualThreshold ? maxVisualThreshold : d.created;
+      const rate = d.created > 0 ? Math.round((d.completed / d.created) * 100) : 0;
 
       return {
         day: d.day,
         fullDay: d.fullDay,
-        created: visualCreated,
+        phase: d.phase,
+        created: d.created,
         rawCreated: d.created,
         completed: d.completed,
-        inFlight: Math.max(1, estimatedActiveOnDay),
-        cumulativeCompleted: Math.min(completedCount, runningCompleted + (idx >= 1 ? 1 : 0)),
+        cumulativeCreated: runningCreated,
+        cumulativeCompleted: runningCompleted,
+        efficiencyRate: rate,
+        slaTarget: 25,
       };
     });
   }, [tasks, t]);
@@ -1036,14 +1032,21 @@ export const DashboardContent = () => {
     const totalCreated = weeklyActivityData.reduce((acc, d) => acc + (d.rawCreated ?? d.created), 0);
     const totalCompleted = weeklyActivityData.reduce((acc, d) => acc + d.completed, 0);
     const velocityRate = totalCreated > 0 ? Math.round((totalCompleted / totalCreated) * 100) : 0;
+    const avgDailyShipped = totalCompleted > 0 ? (totalCompleted / 7).toFixed(1) : "0.0";
     const peakDay = [...weeklyActivityData].sort((a, b) => (b.rawCreated ?? b.created) - (a.rawCreated ?? a.created))[0];
+    const peakShipped = [...weeklyActivityData].sort((a, b) => b.completed - a.completed)[0];
+
     return {
       totalCreated,
       totalCompleted,
       velocityRate,
-      peakDay: peakDay?.fullDay || "Tuesday",
+      avgDailyShipped,
+      peakDay: peakDay?.fullDay || t("day_tuesday", "Tuesday"),
+      peakDayCreated: peakDay?.rawCreated ?? peakDay?.created ?? 0,
+      peakShippedDay: peakShipped?.fullDay || t("day_monday", "Monday"),
+      peakShippedCompleted: peakShipped?.completed ?? 0,
     };
-  }, [weeklyActivityData]);
+  }, [weeklyActivityData, t]);
 
   // Calendar Calculation Helpers for Employee Sprint Calendar
   const currentMonthYear = calendarDate.toLocaleString("default", { month: "long", year: "numeric" });
@@ -1143,32 +1146,39 @@ export const DashboardContent = () => {
 
       let statusBadge = {
         key: actItem.status || "todo",
-        label: "Queued",
+        label: t("dash_queued_backlog", "Queued"),
         color: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200/80 dark:border-amber-900/40",
         dot: "bg-amber-500",
       };
       if (isCompleted) {
         statusBadge = {
           key: "completed",
-          label: "Completed",
+          label: t("completed", "Completed"),
           color: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-200/80 dark:border-emerald-900/40",
           dot: "bg-emerald-500",
         };
       } else if (isInProgress) {
         statusBadge = {
           key: "in_progress",
-          label: "In Processing",
+          label: t("dash_in_proc", "In Processing"),
           color: "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border-indigo-200/80 dark:border-indigo-900/40",
           dot: "bg-[#5B5FEF]",
         };
       } else if (isReview) {
         statusBadge = {
           key: "review",
-          label: "In Review",
+          label: t("in_review", "In Review"),
           color: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border-purple-200/80 dark:border-purple-900/40",
           dot: "bg-purple-500",
         };
       }
+
+      const priorityLabels: Record<string, string> = {
+        urgent: t("priority_urgent", "Urgent"),
+        high: t("priority_high", "High"),
+        medium: t("priority_medium", "Medium"),
+        low: t("priority_low", "Low"),
+      };
 
       let priorityBadgeClass = "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200/80 dark:border-slate-700/50";
       if (actItem.priority === "urgent") priorityBadgeClass = "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border-rose-200/80 dark:border-rose-900/40";
@@ -1177,7 +1187,7 @@ export const DashboardContent = () => {
 
       const diffMs = Date.now() - new Date(actItem.updatedAt || actItem.createdAt).getTime();
       const diffMins = Math.floor(diffMs / 60000);
-      let timeStr = "Just now";
+      let timeStr = t("just_now", "Just now");
       if (diffMins >= 60 * 24) timeStr = `${Math.floor(diffMins / (60 * 24))}d ago`;
       else if (diffMins >= 60) timeStr = `${Math.floor(diffMins / 60)}h ago`;
       else if (diffMins > 0) timeStr = `${diffMins}m ago`;
@@ -1193,7 +1203,7 @@ export const DashboardContent = () => {
 
       // Assignee info
       const assignees = Array.isArray(actItem.assignedTo) ? actItem.assignedTo : [];
-      let assigneeName = "Unassigned";
+      let assigneeName = t("unassigned", "Unassigned");
       let assigneeAvatar = "";
       let assigneeInitials = "UA";
       if (assignees.length > 0) {
@@ -1220,7 +1230,7 @@ export const DashboardContent = () => {
         assigneeCount: assignees.length,
         status: statusBadge,
         time: timeStr,
-        priority: actItem.priority || "medium",
+        priority: priorityLabels[actItem.priority || "medium"] || actItem.priority || "medium",
         priorityBadge: priorityBadgeClass,
       };
     });
@@ -1758,7 +1768,7 @@ export const DashboardContent = () => {
               : isAdmin
               ? [
                   {
-                    label: t("total_tasks") || "TOTAL WORKLOAD",
+                    label: t("dash_total_workspace_deliverables", "TOTAL WORKLOAD"),
                     value: totalTasks,
                     href: "/tasks",
                     icon: Layers,
@@ -1769,10 +1779,10 @@ export const DashboardContent = () => {
                     badge: "Org Wide",
                     badgeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border-indigo-200/60 dark:border-indigo-900/40",
                     hint: "All Work Items",
-                    actionLabel: "View all →",
+                    actionLabel: t("dash_view_all", "View all →"),
                   },
                   {
-                    label: t("in_progress") || "IN PROGRESS",
+                    label: t("in_progress", "IN PROGRESS"),
                     value: activeTasks,
                     href: "/tasks?status=in_progress",
                     icon: PlayCircle,
@@ -1780,13 +1790,13 @@ export const DashboardContent = () => {
                     iconBg: "bg-sky-500/10 dark:bg-sky-500/20",
                     hoverBorder: "hover:border-sky-500/50",
                     topBar: "bg-sky-500",
-                    badge: inReviewTasks > 0 ? `${inProgressTasks} Exec · ${inReviewTasks} Rev` : "Active",
+                    badge: inReviewTasks > 0 ? "In-Flight" : "Active",
                     badgeBg: "bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 border-sky-200/60 dark:border-sky-900/40",
-                    hint: "Execution Stream",
-                    actionLabel: "Track →",
+                    hint: inReviewTasks > 0 ? `${inProgressTasks} Exec · ${inReviewTasks} Review` : "Execution Stream",
+                    actionLabel: t("dash_track", "Track →"),
                   },
                   {
-                    label: t("pending") || "PENDING BACKLOG",
+                    label: t("dash_team_backlog", "PENDING BACKLOG"),
                     value: todoTasks,
                     href: "/tasks?status=todo",
                     icon: Clock,
@@ -1797,10 +1807,10 @@ export const DashboardContent = () => {
                     badge: "Queue",
                     badgeBg: "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-300 border-amber-200/60 dark:border-amber-900/40",
                     hint: "Awaiting Sprint Kickoff",
-                    actionLabel: "Inspect →",
+                    actionLabel: t("dash_inspect", "Inspect →"),
                   },
                   {
-                    label: t("completed") || "RESOLVED & SHIPPED",
+                    label: t("dash_team_shipped", "RESOLVED & SHIPPED"),
                     value: completedTasks,
                     href: "/tasks?status=completed",
                     icon: CheckCircle2,
@@ -1811,13 +1821,13 @@ export const DashboardContent = () => {
                     badge: `${productivityPercent}% Done`,
                     badgeBg: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-900/40",
                     hint: "Verified Deliverables",
-                    actionLabel: "View →",
+                    actionLabel: t("dash_view", "View →"),
                   },
                 ]
               : isManager
               ? [
                   {
-                    label: "TEAM WORKLOAD",
+                    label: t("dash_total_workspace_deliverables", "TEAM WORKLOAD"),
                     value: totalTasks,
                     href: "/tasks",
                     icon: Layers,
@@ -1825,13 +1835,13 @@ export const DashboardContent = () => {
                     iconBg: "bg-amber-500/10 dark:bg-amber-500/20",
                     hoverBorder: "hover:border-amber-500/50",
                     topBar: "bg-amber-500",
-                    badge: "Team",
+                    badge: t("dash_badge_team", "Team"),
                     badgeBg: "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-300 border-amber-200/60 dark:border-amber-900/40",
                     hint: `${user?.department || "Team"} Items`,
-                    actionLabel: "View all →",
+                    actionLabel: t("dash_view_all", "View all →"),
                   },
                   {
-                    label: "IN FLIGHT",
+                    label: t("dash_in_flight", "IN FLIGHT"),
                     value: activeTasks,
                     href: "/tasks?status=in_progress",
                     icon: PlayCircle,
@@ -1839,13 +1849,13 @@ export const DashboardContent = () => {
                     iconBg: "bg-sky-500/10 dark:bg-sky-500/20",
                     hoverBorder: "hover:border-sky-500/50",
                     topBar: "bg-sky-500",
-                    badge: inReviewTasks > 0 ? `${inProgressTasks} In Flight · ${inReviewTasks} Review` : "Active",
+                    badge: inReviewTasks > 0 ? "In-Flight" : "Active",
                     badgeBg: "bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 border-sky-200/60 dark:border-sky-900/40",
-                    hint: "Active Execution",
-                    actionLabel: "Track →",
+                    hint: inReviewTasks > 0 ? `${inProgressTasks} Exec · ${inReviewTasks} Review` : "Active Execution",
+                    actionLabel: t("dash_track", "Track →"),
                   },
                   {
-                    label: "TEAM BACKLOG",
+                    label: t("dash_team_backlog", "TEAM BACKLOG"),
                     value: todoTasks,
                     href: "/tasks?status=todo",
                     icon: Clock,
@@ -1853,13 +1863,13 @@ export const DashboardContent = () => {
                     iconBg: "bg-indigo-500/10 dark:bg-indigo-500/20",
                     hoverBorder: "hover:border-indigo-500/50",
                     topBar: "bg-indigo-500",
-                    badge: "Queue",
+                    badge: t("dash_badge_queue", "Queue"),
                     badgeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border-indigo-200/60 dark:border-indigo-900/40",
                     hint: "Awaiting Sprint Kickoff",
-                    actionLabel: "Inspect →",
+                    actionLabel: t("dash_inspect", "Inspect →"),
                   },
                   {
-                    label: "TEAM SHIPPED",
+                    label: t("dash_team_shipped", "TEAM SHIPPED"),
                     value: completedTasks,
                     href: "/tasks?status=completed",
                     icon: CheckCircle2,
@@ -1870,12 +1880,12 @@ export const DashboardContent = () => {
                     badge: `${productivityPercent}% Rate`,
                     badgeBg: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-900/40",
                     hint: "Team Resolved",
-                    actionLabel: "View →",
+                    actionLabel: t("dash_view", "View →"),
                   },
                 ]
               : [
                   {
-                    label: "MY ASSIGNED DELIVERABLES",
+                    label: t("dash_my_assigned", "MY ASSIGNED DELIVERABLES"),
                     value: totalTasks,
                     href: "/tasks",
                     icon: CheckSquare,
@@ -1886,10 +1896,10 @@ export const DashboardContent = () => {
                     badge: "Assigned",
                     badgeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border-indigo-200/60 dark:border-indigo-900/40",
                     hint: "Workload Items",
-                    actionLabel: "View all →",
+                    actionLabel: t("dash_view_all", "View all →"),
                   },
                   {
-                    label: t("in_progress") || "IN PROGRESS",
+                    label: t("in_progress", "IN PROGRESS"),
                     value: activeTasks,
                     href: "/tasks?status=in_progress",
                     icon: PlayCircle,
@@ -1900,10 +1910,10 @@ export const DashboardContent = () => {
                     badge: inReviewTasks > 0 ? `${inProgressTasks} In Flight` : "Today",
                     badgeBg: "bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 border-sky-200/60 dark:border-sky-900/40",
                     hint: "Active Today",
-                    actionLabel: "Track →",
+                    actionLabel: t("dash_track", "Track →"),
                   },
                   {
-                    label: t("pending") || "PENDING TO DO",
+                    label: t("pending", "PENDING TO DO"),
                     value: todoTasks,
                     href: "/tasks?status=todo",
                     icon: Clock,
@@ -1914,10 +1924,10 @@ export const DashboardContent = () => {
                     badge: "Upcoming",
                     badgeBg: "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-300 border-amber-200/60 dark:border-amber-900/40",
                     hint: "Upcoming Backlog",
-                    actionLabel: "Inspect →",
+                    actionLabel: t("dash_inspect", "Inspect →"),
                   },
                   {
-                    label: t("completed") || "COMPLETED & SHIPPED",
+                    label: t("completed", "COMPLETED & SHIPPED"),
                     value: completedTasks,
                     href: "/tasks?status=completed",
                     icon: CheckCircle2,
@@ -1928,7 +1938,7 @@ export const DashboardContent = () => {
                     badge: `${productivityPercent}% Rate`,
                     badgeBg: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-900/40",
                     hint: "Completed Tasks",
-                    actionLabel: "View →",
+                    actionLabel: t("dash_view", "View →"),
                   },
                 ]
             ).map((stat: any, idx: number) => {
@@ -1980,281 +1990,554 @@ export const DashboardContent = () => {
             {/* ================= 1. UPPER SECTION: TOP ANALYTICS & PERFORMANCE CHARTS ================= */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
               
-              {/* Admin Chart 1: Top Categories Circle Dashboard */}
+              {/* Admin Chart 1: Enterprise Workforce & Resource Allocation Cockpit */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow min-h-[420px] sm:min-h-[440px]">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+                {/* Header: Title, Live Allocation Tag, and View Mode Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-sky-50 dark:bg-sky-950/60 border border-sky-100 dark:border-sky-900/40 flex items-center justify-center text-[#0284C7] shadow-2xs shrink-0">
+                    <div className="w-10 h-10 rounded-2xl bg-sky-50 dark:bg-sky-950/60 border border-sky-100 dark:border-sky-900/40 flex items-center justify-center text-[#0284C7] dark:text-sky-400 shadow-2xs shrink-0">
                       <Building2 className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-[16px] sm:text-[17px] font-black text-slate-900 dark:text-white">
-                          Enterprise Resource Allocation
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-[16px] sm:text-[17px] font-black text-slate-900 dark:text-white tracking-tight">
+                          {t("dash_resource_alloc_title", "Enterprise Resource Allocation")}
                         </h3>
-                        <span className="px-2 py-0.5 bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/60 dark:border-sky-900/40 rounded-md text-[10.5px] font-bold flex items-center gap-1.5 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" /> 100% ALLOCATED
+                        <span className="px-2 py-0.5 bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/60 dark:border-sky-900/40 rounded-md text-[10px] font-bold flex items-center gap-1.5 shadow-2xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" /> {t("dash_100_allocated", "100% ALLOCATED")}
+                        </span>
+                        <span className="hidden xl:inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60 rounded-md text-[10px] font-bold">
+                          <Users className="w-3 h-3 text-sky-500" /> {dashboardData?.totalUsers || dashboardData?.totalEmployees || 128} {t("dash_members", "Members")}
                         </span>
                       </div>
                       <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                        Workforce headcount distribution across functional units
+                        {t("dash_resource_alloc_sub", "Workforce headcount distribution across functional units")}
                       </p>
                     </div>
                   </div>
-                  <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60 rounded-xl text-xs font-bold self-start sm:self-auto shadow-2xs">
-                    {topCategoriesData.length} Departments
-                  </span>
+
+                  {/* View Mode Switcher: Donut Ring vs Capacity Matrix */}
+                  <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setResourceChartMode("donut")}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        resourceChartMode === "donut"
+                          ? "bg-white dark:bg-slate-700 text-[#0284C7] dark:text-white shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      title="Interactive Donut Ring & Headcount Cockpit"
+                    >
+                      <CircleDashed className="w-3.5 h-3.5" />
+                      <span>{t("dash_donut", "Donut")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResourceChartMode("bars")}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        resourceChartMode === "bars"
+                          ? "bg-white dark:bg-slate-700 text-[#0284C7] dark:text-white shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      title="Department Capacity Breakdown"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span>{t("dash_capacity", "Capacity")}</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Horizontal split: Solid circle pie on left + Clean checklist on right (Image 3 layout) */}
-                <div className="flex flex-col sm:flex-row items-center gap-5 sm:gap-6 flex-1 my-2">
-                  {/* Left: Solid Pie Chart with slice percentage labels & smooth animation */}
-                  <div className="w-[230px] h-[230px] sm:w-[255px] sm:h-[255px] shrink-0 relative flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={topCategoriesData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={0}
-                          outerRadius={108}
-                          dataKey="value"
-                          stroke="#ffffff"
-                          strokeWidth={2}
-                          labelLine={false}
-                          label={renderCustomizedPieLabel}
-                          isAnimationActive={true}
-                          animationBegin={100}
-                          animationDuration={1200}
-                          animationEasing="ease-out"
-                        >
-                          {topCategoriesData.map((entry: any, index: number) => {
-                            const isHovered = activeCategoryIndex === index;
-                            return (
-                              <Cell
-                                key={`cell-topcat-${index}`}
-                                fill={entry.color}
-                                className="transition-all duration-300 cursor-pointer"
-                                style={{
-                                  filter: isHovered
-                                    ? "drop-shadow(0px 4px 12px rgba(0,0,0,0.45)) brightness(1.15)"
-                                    : "drop-shadow(0px 1px 2px rgba(0,0,0,0.08))",
-                                  transform: isHovered ? "scale(1.04)" : "scale(1)",
-                                  transformOrigin: "center center",
-                                  transition: "all 0.25s ease-out",
-                                }}
-                                onMouseEnter={() => setActiveCategoryIndex(index)}
-                                onMouseLeave={() => setActiveCategoryIndex(null)}
-                              />
-                            );
-                          })}
-                        </Pie>
-                        <Tooltip
-                          formatter={(val: any, name: any) => [`${val}% Resource Allocation`, name]}
-                          contentStyle={{
-                            backgroundColor: "#0F172A",
-                            borderRadius: "12px",
-                            border: "1px solid rgba(255,255,255,0.1)",
-                            boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
-                            fontSize: "12.5px",
-                            fontWeight: "bold",
-                            color: "white",
-                            padding: "8px 12px",
-                          }}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+                {resourceChartMode === "donut" ? (
+                  /* Mode 1: Modern Donut Ring with Interactive Center Cockpit + Department Breakdown */
+                  <div className="flex flex-col sm:flex-row items-center gap-5 sm:gap-6 flex-1 my-1">
+                    {/* Left: Sleek Donut Ring with interactive center readout (No overlapping popup collision) */}
+                    <div className="w-[220px] h-[220px] sm:w-[245px] sm:h-[245px] shrink-0 relative flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={topCategoriesData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={68}
+                            outerRadius={96}
+                            paddingAngle={3}
+                            cornerRadius={5}
+                            dataKey="value"
+                            stroke="transparent"
+                            isAnimationActive={true}
+                            animationBegin={100}
+                            animationDuration={1200}
+                            animationEasing="ease-out"
+                          >
+                            {topCategoriesData.map((entry: any, index: number) => {
+                              const isHovered = activeCategoryIndex === index;
+                              const isAnyHovered = activeCategoryIndex !== null;
+                              return (
+                                <Cell
+                                  key={`cell-topcat-${index}`}
+                                  fill={entry.color}
+                                  className="transition-all duration-300 cursor-pointer outline-none"
+                                  style={{
+                                    filter: isHovered
+                                      ? `drop-shadow(0px 4px 16px ${entry.color}90) brightness(1.18)`
+                                      : "drop-shadow(0px 1px 2px rgba(0,0,0,0.06))",
+                                    opacity: !isAnyHovered || isHovered ? 1 : 0.45,
+                                    transform: isHovered ? "scale(1.06)" : "scale(1)",
+                                    transformOrigin: "center center",
+                                    transition: "all 0.25s ease-out",
+                                  }}
+                                  onMouseEnter={() => setActiveCategoryIndex(index)}
+                                  onMouseLeave={() => setActiveCategoryIndex(null)}
+                                />
+                              );
+                            })}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
 
-                  {/* Right: Vertical Category Checklist with Hover Animation Sync */}
-                  <div className="flex-1 w-full max-h-[255px] sm:max-h-[270px] overflow-y-auto space-y-1.5 pr-2 custom-scrollbar">
+                      {/* Center Cockpit Hole Readout (Zero Overlap, Crystal-Clear Telemetry) */}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
+                        <div
+                          className="w-[122px] h-[122px] rounded-full flex flex-col items-center justify-center text-center px-2.5 transition-all duration-300 backdrop-blur-xs border shadow-inner"
+                          style={{
+                            backgroundColor:
+                              activeCategoryIndex !== null && topCategoriesData[activeCategoryIndex]
+                                ? "rgba(255, 255, 255, 0.96)"
+                                : "rgba(248, 250, 252, 0.7)",
+                            borderColor:
+                              activeCategoryIndex !== null && topCategoriesData[activeCategoryIndex]
+                                ? `${topCategoriesData[activeCategoryIndex].color}50`
+                                : "rgba(226, 232, 240, 0.8)",
+                            boxShadow:
+                              activeCategoryIndex !== null && topCategoriesData[activeCategoryIndex]
+                                ? `0 0 20px ${topCategoriesData[activeCategoryIndex].color}25, inset 0 0 10px ${topCategoriesData[activeCategoryIndex].color}12`
+                                : undefined,
+                          }}
+                        >
+                          {activeCategoryIndex !== null && topCategoriesData[activeCategoryIndex] ? (
+                            <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-150">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full mb-1 shadow-xs ring-2 ring-white dark:ring-slate-900"
+                                style={{ backgroundColor: topCategoriesData[activeCategoryIndex].color }}
+                              />
+                              <span className="text-[12px] font-black text-slate-900 dark:text-white truncate max-w-[102px] leading-tight">
+                                {translateDept(topCategoriesData[activeCategoryIndex].name)}
+                              </span>
+                              <span
+                                className="text-[23px] font-black font-mono leading-tight my-0.5 tracking-tight"
+                                style={{ color: topCategoriesData[activeCategoryIndex].color }}
+                              >
+                                {topCategoriesData[activeCategoryIndex].value}%
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-mono">
+                                {topCategoriesData[activeCategoryIndex].count || Math.round((topCategoriesData[activeCategoryIndex].value / 100) * 128)} {t("dash_members", "Members")}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-150">
+                              <span className="text-[9px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-widest">
+                                {t("dash_workforce", "WORKFORCE")}
+                              </span>
+                              <span className="text-[25px] font-black text-slate-900 dark:text-white font-mono leading-tight my-0.5 tracking-tight">
+                                {dashboardData?.totalUsers || dashboardData?.totalEmployees || 128}
+                              </span>
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                {t("dash_100_allocated", "100% Allocated")}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Vertical Department Breakdown with Structured Executive Cardlets */}
+                    <div className="flex-1 w-full max-h-[255px] sm:max-h-[270px] overflow-y-auto space-y-2 pr-1.5 custom-scrollbar">
+                      {topCategoriesData.map((item: any, idx: number) => {
+                        const isHovered = activeCategoryIndex === idx;
+                        const estCount = item.count || Math.round((item.value / 100) * (dashboardData?.totalUsers || 128));
+                        return (
+                          <div
+                            key={idx}
+                            onMouseEnter={() => setActiveCategoryIndex(idx)}
+                            onMouseLeave={() => setActiveCategoryIndex(null)}
+                            className={`px-3 py-2 rounded-xl transition-all duration-200 group cursor-pointer border ${
+                              isHovered
+                                ? "bg-white dark:bg-slate-800 border-indigo-300 dark:border-indigo-600 shadow-xs scale-[1.01]"
+                                : "bg-slate-50/80 dark:bg-slate-800/40 border-slate-200/70 dark:border-slate-700/60 hover:bg-white dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 shadow-2xs"
+                            }`}
+                            style={{
+                              borderLeftColor: item.color,
+                              borderLeftWidth: "3.5px",
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span
+                                  className={`w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white dark:ring-slate-900 shadow-2xs transition-transform duration-200 ${
+                                    isHovered ? "scale-125" : ""
+                                  }`}
+                                  style={{ backgroundColor: item.color }}
+                                />
+                                <span
+                                  className={`text-[12.5px] truncate transition-colors ${
+                                    isHovered
+                                      ? "font-black text-slate-900 dark:text-white"
+                                      : "font-bold text-slate-800 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white"
+                                  }`}
+                                >
+                                  {translateDept(item.name)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900/80 text-slate-600 dark:text-slate-400 text-[10.5px] font-semibold font-mono border border-slate-200/80 dark:border-slate-700/70 shadow-2xs">
+                                  {estCount} {t("dash_staff", "staff")}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-black border transition-colors ${
+                                    isHovered
+                                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200/70"
+                                      : "bg-slate-100/90 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60"
+                                  }`}
+                                >
+                                  {item.value}%
+                                </span>
+                              </div>
+                            </div>
+                            {/* Sleek dynamic allocation progress bar with visible track */}
+                            <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-700/80 rounded-full overflow-hidden mt-1.5">
+                              <div
+                                className="h-full rounded-full transition-all duration-300"
+                                style={{
+                                  width: `${item.value}%`,
+                                  backgroundColor: item.color,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* Mode 2: Full Department Capacity Matrix */
+                  <div className="w-full flex-1 max-h-[255px] sm:max-h-[270px] overflow-y-auto space-y-2 pr-1.5 custom-scrollbar py-1">
                     {topCategoriesData.map((item: any, idx: number) => {
-                      const isHovered = activeCategoryIndex === idx;
+                      const estCount = item.count || Math.round((item.value / 100) * (dashboardData?.totalUsers || 128));
+                      const isPrimary = item.value >= 20;
                       return (
                         <div
                           key={idx}
-                          onMouseEnter={() => setActiveCategoryIndex(idx)}
-                          onMouseLeave={() => setActiveCategoryIndex(null)}
-                          className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl transition-all duration-200 group cursor-pointer ${
-                            isHovered
-                              ? "bg-slate-100 dark:bg-slate-800 scale-[1.02] shadow-2xs"
-                              : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                          }`}
+                          className="px-3 py-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-700/60 shadow-2xs hover:bg-white dark:hover:bg-slate-800 transition-all"
+                          style={{
+                            borderLeftColor: item.color,
+                            borderLeftWidth: "3.5px",
+                          }}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div
-                              className={`w-4.5 h-4.5 rounded-[5px] flex items-center justify-center text-white shrink-0 shadow-2xs transition-transform duration-200 ${
-                                isHovered ? "scale-110" : ""
-                              }`}
-                              style={{ backgroundColor: item.color }}
-                            >
-                              <Check className="w-3 h-3 stroke-[3.5]" />
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white dark:ring-slate-900 shadow-2xs" style={{ backgroundColor: item.color }} />
+                              <span className="font-bold text-slate-800 dark:text-slate-100 text-[12.5px]">{translateDept(item.name)}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                                isPrimary 
+                                  ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border-indigo-200/60 dark:border-indigo-900/40" 
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200/60 dark:border-slate-700/60"
+                              }`}>
+                                {isPrimary ? t("dash_primary_unit", "Primary Unit") : t("dash_balanced_unit", "Balanced")}
+                              </span>
                             </div>
-                            <span
-                              className={`text-[12.5px] sm:text-[13px] truncate transition-colors ${
-                                isHovered
-                                  ? "font-black text-[#0284C7] dark:text-sky-300"
-                                  : "font-bold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white"
-                              }`}
-                            >
-                              {item.name}
-                            </span>
+                            <div className="flex items-center gap-2 font-mono">
+                              <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900/80 text-slate-600 dark:text-slate-400 text-[10.5px] font-semibold border border-slate-200/80 dark:border-slate-700/70 shadow-2xs">{estCount} {t("dash_staff", "staff")}</span>
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100/90 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-black border border-slate-200/60 dark:border-slate-700/60">{item.value}%</span>
+                            </div>
                           </div>
-                          <span
-                            className={`text-[12px] sm:text-[12.5px] font-mono shrink-0 transition-colors ${
-                              isHovered
-                                ? "font-black text-[#0284C7] dark:text-sky-300"
-                                : "font-extrabold text-slate-500 dark:text-slate-400"
-                            }`}
-                          >
-                            {item.value}%
-                          </span>
+                          <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-700/80 rounded-full overflow-hidden mt-1.5">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${item.value}%`,
+                                backgroundColor: item.color,
+                              }}
+                            />
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                </div>
+                )}
 
+                {/* Footer: Summary & Status */}
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-[12px] font-bold text-slate-400">
-                  <span>{topCategoriesData.length} Enterprise Categories</span>
-                  <span className="text-[#0284C7] font-extrabold">100% Resource Allocation</span>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#6366F1]" />
+                    <span>{t("dash_top_unit", "Top Unit:")} <strong className="text-slate-700 dark:text-slate-200">{translateDept(topCategoriesData[0]?.name || "Engineering")} ({topCategoriesData[0]?.value || 33}%)</strong></span>
+                  </div>
+                  <span className="text-[#0284C7] dark:text-sky-400 font-extrabold flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" /> {t("dash_balanced_alloc", "100% Balanced Allocation")}
+                  </span>
                 </div>
               </div>
 
-              {/* Admin Chart 2: Weekly Velocity Chart (Trend Wave Spline & Daily Bars with Outlier Protection) */}
+              {/* Admin Chart 2: Weekly Task Activity & Velocity Cockpit */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow min-h-[420px] sm:min-h-[440px]">
-                {/* Header: Title, Live Tag, and View Mode Toggle */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+                {/* Header: Title, Live Status Badges, and Mode Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900/40 flex items-center justify-center text-[#5B5FEF] shadow-2xs shrink-0">
-                      <Activity className="w-5 h-5" />
+                      <TrendingUp className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-[16px] sm:text-[17px] font-black text-slate-900 dark:text-white">
-                          Enterprise Weekly Velocity
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-[16px] sm:text-[17px] font-black text-slate-900 dark:text-white tracking-tight">
+                          {t("dash_weekly_activity_title", "Weekly Task Activity")}
                         </h3>
-                        <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-900/40 rounded-md text-[10.5px] font-bold flex items-center gap-1.5 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> {t("live_badge") || "LIVE"}
+                        <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-900/40 rounded-md text-[10px] font-bold flex items-center gap-1.5 shadow-2xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> {t("dash_live", "Live")}
+                        </span>
+                        <span className="hidden xl:inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-900/40 rounded-md text-[10px] font-bold">
+                          <CalendarDays className="w-3 h-3 text-[#5B5FEF]" />
+                          {t("dash_this_week", "This Week")}
                         </span>
                       </div>
                       <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                        Deliverables created vs completed across sprint days (Mon–Sun)
+                        {t("dash_weekly_activity_sub", "Daily comparison of new tasks created vs tasks completed this week")}
                       </p>
                     </div>
                   </div>
 
-                  {/* View Mode Switcher: Trend Wave (Line/Area) vs Daily Bars */}
+                  {/* View Mode Switcher: Daily Tasks (Default) vs Weekly Trend vs Completion Rate % */}
                   <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60 self-start sm:self-auto">
                     <button
                       type="button"
-                      onClick={() => setAdminChartMode("area")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                        adminChartMode === "area"
-                          ? "bg-white dark:bg-slate-700 text-[#5B5FEF] dark:text-white shadow-xs"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
-                      title="Smooth Velocity Trend Curve"
-                    >
-                      <TrendingUp className="w-3.5 h-3.5" />
-                      <span>Trend Wave</span>
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setAdminChartMode("bar")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                         adminChartMode === "bar"
                           ? "bg-white dark:bg-slate-700 text-[#5B5FEF] dark:text-white shadow-xs"
                           : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                       }`}
-                      title="Daily Comparative Bars"
+                      title="Daily Tasks Created vs Completed"
                     >
                       <BarChart3 className="w-3.5 h-3.5" />
-                      <span>Daily Bars</span>
+                      <span>{t("dash_daily_tasks", "Daily Tasks")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdminChartMode("burnup")}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        adminChartMode === "burnup"
+                          ? "bg-white dark:bg-slate-700 text-[#5B5FEF] dark:text-white shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      title="Cumulative Progress Trend"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{t("dash_weekly_trend", "Weekly Trend")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdminChartMode("trend")}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        adminChartMode === "trend"
+                          ? "bg-white dark:bg-slate-700 text-[#5B5FEF] dark:text-white shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      title="Daily Completion Rate Percentage"
+                    >
+                      <Target className="w-3.5 h-3.5" />
+                      <span>{t("dash_completion_pct", "Completion %")}</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Top Mini-KPI Strip: Real Enterprise Insights */}
-                <div className="grid grid-cols-3 gap-2.5 py-2.5 px-3.5 mb-2 bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Weekly Inflow</p>
-                    <p className="text-[14px] font-black text-slate-900 dark:text-white font-mono mt-0.5">
-                      {weeklyVelocityStats.totalCreated} <span className="text-[11px] font-normal text-slate-400 font-sans">Created</span>
+                {/* Top 3 Understandable Metric Cards */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 py-2.5 px-3 sm:px-4 mb-2 bg-slate-50/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
+                  <div className="flex flex-col justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#5B5FEF]" />
+                      <p className="text-[10.5px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t("dash_tasks_created", "Tasks Created")}</p>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-1">
+                      <span className="text-[18px] sm:text-[20px] font-black text-slate-900 dark:text-white font-mono leading-tight">
+                        {weeklyVelocityStats.totalCreated}
+                      </span>
+                      <span className="text-[11px] font-medium text-slate-400">{t("dash_total_added", "Total Added")}</span>
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                      {t("dash_new_work_week", "New work this week")}
                     </p>
                   </div>
-                  <div className="border-x border-slate-200/60 dark:border-slate-700/60 px-2 sm:px-3 text-center">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sprint Shipped</p>
-                    <p className="text-[14px] font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
-                      {weeklyVelocityStats.totalCompleted} <span className="text-[11px] font-normal text-slate-400 font-sans">Done</span>
+
+                  <div className="border-x border-slate-200/70 dark:border-slate-700/60 px-2 sm:px-3 flex flex-col justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                      <p className="text-[10.5px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t("dash_tasks_completed", "Tasks Completed")}</p>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-1">
+                      <span className="text-[18px] sm:text-[20px] font-black text-emerald-600 dark:text-emerald-400 font-mono leading-tight">
+                        {weeklyVelocityStats.totalCompleted}
+                      </span>
+                      <span className="text-[11px] font-medium text-emerald-600/70 dark:text-emerald-400/70">{t("dash_resolved", "Resolved")}</span>
+                    </div>
+                    <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 mt-0.5 truncate flex items-center gap-1">
+                      <Check className="w-3 h-3 stroke-[3]" /> {t("dash_finished_tasks", "Finished tasks")}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Throughput Rate</p>
-                    <p className="text-[14px] font-black text-[#5B5FEF] dark:text-indigo-400 font-mono mt-0.5">
-                      {weeklyVelocityStats.velocityRate}% <span className="text-[11px] font-normal text-slate-400 font-sans">Efficiency</span>
+
+                  <div className="text-right flex flex-col justify-between">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                      <p className="text-[10.5px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t("dash_completion_rate", "Completion Rate")}</p>
+                    </div>
+                    <div className="flex items-baseline justify-end gap-1.5 mt-1">
+                      <span className="text-[18px] sm:text-[20px] font-black text-[#5B5FEF] dark:text-indigo-400 font-mono leading-tight">
+                        {weeklyVelocityStats.velocityRate}%
+                      </span>
+                      <span className="text-[11px] font-medium text-slate-400">{t("dash_progress", "Progress")}</span>
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                      Avg ~{weeklyVelocityStats.avgDailyShipped} {t("dash_tasks_per_day", "tasks/day")}
                     </p>
                   </div>
                 </div>
 
-                {/* Chart Canvas Area */}
-                <div className="h-[235px] sm:h-[250px] w-full flex-1 my-1">
+                {/* Chart Canvas Area with Visible, Clean Grid Lines */}
+                <div className="h-[230px] sm:h-[245px] w-full flex-1 my-1">
                   <ResponsiveContainer width="100%" height="100%">
-                    {adminChartMode === "area" ? (
-                      <AreaChart data={weeklyActivityData} margin={{ top: 12, right: 12, bottom: 0, left: -15 }}>
+                    {adminChartMode === "bar" ? (
+                      <BarChart data={weeklyActivityData} margin={{ top: 12, right: 12, bottom: 0, left: -16 }}>
                         <defs>
-                          <linearGradient id="adminVelocityCreated" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#5B5FEF" stopOpacity={0.32} />
-                            <stop offset="95%" stopColor="#5B5FEF" stopOpacity={0.0} />
+                          <linearGradient id="adminBarCreatedGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#6366F1" stopOpacity={1} />
+                            <stop offset="100%" stopColor="#4F46E5" stopOpacity={0.85} />
                           </linearGradient>
-                          <linearGradient id="adminVelocityCompleted" x1="0" y1="0" x2="0" y2="1">
+                          <linearGradient id="adminBarCompletedGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10B981" stopOpacity={1} />
+                            <stop offset="100%" stopColor="#059669" stopOpacity={0.85} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#CBD5E1" strokeOpacity={0.7} />
+                        <XAxis
+                          dataKey="day"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: 12, fill: "#64748B", fontWeight: 700 }}
+                          dy={8}
+                        />
+                        <YAxis
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: 11.5, fill: "#64748B", fontWeight: 700 }}
+                          allowDecimals={false}
+                        />
+                        <Tooltip
+                          cursor={{ fill: "rgba(99, 102, 241, 0.06)", radius: 8 }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              const d = payload[0]?.payload;
+                              const createdVal = d?.rawCreated ?? d?.created ?? 0;
+                              const completedVal = d?.completed ?? 0;
+                              const rate = createdVal > 0 ? Math.round((completedVal / createdVal) * 100) : 0;
+                              return (
+                                <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-3 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2 min-w-[175px]">
+                                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                                    <p className="font-bold text-[13px] text-slate-900 dark:text-white">{d?.fullDay || label}</p>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
+                                      rate >= 30
+                                        ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60"
+                                        : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60"
+                                    }`}>
+                                      {rate}% Resolved
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1.5 pt-0.5">
+                                    <div className="flex items-center justify-between gap-3 text-[12px]">
+                                      <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-[#6366F1]" />
+                                        {t("dash_tasks_created", "Tasks Created")}:
+                                      </span>
+                                      <span className="font-mono font-bold text-slate-900 dark:text-white">{createdVal}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 text-[12px]">
+                                      <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
+                                        {t("dash_tasks_completed", "Tasks Completed")}:
+                                      </span>
+                                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{completedVal}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar
+                          dataKey="created"
+                          name={t("dash_tasks_created", "Tasks Created")}
+                          fill="url(#adminBarCreatedGrad)"
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={24}
+                        />
+                        <Bar
+                          dataKey="completed"
+                          name={t("dash_tasks_completed", "Tasks Completed")}
+                          fill="url(#adminBarCompletedGrad)"
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={24}
+                        />
+                      </BarChart>
+                    ) : adminChartMode === "burnup" ? (
+                      <AreaChart data={weeklyActivityData} margin={{ top: 12, right: 12, bottom: 0, left: -14 }}>
+                        <defs>
+                          <linearGradient id="adminBurnupScope" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366F1" stopOpacity={0.25} />
+                            <stop offset="95%" stopColor="#6366F1" stopOpacity={0.0} />
+                          </linearGradient>
+                          <linearGradient id="adminBurnupShipped" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#10B981" stopOpacity={0.35} />
                             <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" opacity={0.6} />
+                        <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#CBD5E1" strokeOpacity={0.7} />
                         <XAxis
                           dataKey="day"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fontSize: 11.5, fill: "#94A3B8", fontWeight: 700 }}
+                          tick={{ fontSize: 12, fill: "#64748B", fontWeight: 700 }}
                           dy={8}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fontSize: 11.5, fill: "#94A3B8", fontWeight: 700 }}
+                          tick={{ fontSize: 11.5, fill: "#64748B", fontWeight: 700 }}
                           allowDecimals={false}
                         />
                         <Tooltip
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
                               const d = payload[0]?.payload;
-                              const createdVal = d?.rawCreated ?? d?.created ?? 0;
-                              const completedVal = d?.completed ?? 0;
-                              const rate = createdVal > 0 ? Math.round((completedVal / createdVal) * 100) : 0;
                               return (
-                                <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-xl shadow-2xl border border-slate-700/80 text-xs font-semibold space-y-2 min-w-[170px]">
-                                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                                    <p className="font-black text-[13px] text-white">{d?.fullDay || label}</p>
-                                    <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 font-bold border border-indigo-800/60">
-                                      {rate}% Done
+                                <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-3 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2 min-w-[175px]">
+                                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                                    <p className="font-bold text-[13px] text-slate-900 dark:text-white">{d?.fullDay || label}</p>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60">
+                                      {t("dash_cumulative", "Cumulative")}
                                     </span>
                                   </div>
                                   <div className="space-y-1.5 pt-0.5">
                                     <div className="flex items-center justify-between gap-3 text-[12px]">
-                                      <span className="flex items-center gap-1.5 text-slate-300 font-medium">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-[#5B5FEF]" />
-                                        Created:
+                                      <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-[#6366F1]" />
+                                        {t("dash_total_added", "Total Created")}:
                                       </span>
-                                      <span className="font-mono font-bold text-white">{createdVal}</span>
+                                      <span className="font-mono font-bold text-slate-900 dark:text-white">{d?.cumulativeCreated ?? 0}</span>
                                     </div>
                                     <div className="flex items-center justify-between gap-3 text-[12px]">
-                                      <span className="flex items-center gap-1.5 text-slate-300 font-medium">
+                                      <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium">
                                         <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
-                                        Completed:
+                                        {t("dash_tasks_completed", "Total Completed")}:
                                       </span>
-                                      <span className="font-mono font-bold text-emerald-400">{completedVal}</span>
+                                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{d?.cumulativeCompleted ?? 0}</span>
                                     </div>
                                   </div>
                                 </div>
@@ -2265,69 +2548,64 @@ export const DashboardContent = () => {
                         />
                         <Area
                           type="monotone"
-                          dataKey="created"
-                          name={t("created_label") || "Created"}
-                          stroke="#5B5FEF"
-                          strokeWidth={3}
-                          fill="url(#adminVelocityCreated)"
-                          activeDot={{ r: 5, stroke: "#5B5FEF", strokeWidth: 2, fill: "#fff" }}
+                          dataKey="cumulativeCreated"
+                          name={t("dash_tasks_created", "Total Created")}
+                          stroke="#6366F1"
+                          strokeWidth={2.5}
+                          fill="url(#adminBurnupScope)"
+                          dot={{ r: 3.5, stroke: "#6366F1", strokeWidth: 2, fill: "#ffffff" }}
+                          activeDot={{ r: 5, stroke: "#6366F1", strokeWidth: 2, fill: "#ffffff" }}
                         />
                         <Area
                           type="monotone"
-                          dataKey="completed"
-                          name={t("completed_label") || "Completed"}
+                          dataKey="cumulativeCompleted"
+                          name={t("dash_tasks_completed", "Total Completed")}
                           stroke="#10B981"
-                          strokeWidth={3}
-                          fill="url(#adminVelocityCompleted)"
-                          activeDot={{ r: 5, stroke: "#10B981", strokeWidth: 2, fill: "#fff" }}
+                          strokeWidth={2.5}
+                          fill="url(#adminBurnupShipped)"
+                          dot={{ r: 3.5, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
+                          activeDot={{ r: 5, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
                         />
                       </AreaChart>
                     ) : (
-                      <BarChart data={weeklyActivityData} margin={{ top: 12, right: 12, bottom: 0, left: -15 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" opacity={0.6} />
+                      <AreaChart data={weeklyActivityData} margin={{ top: 12, right: 12, bottom: 0, left: -14 }}>
+                        <defs>
+                          <linearGradient id="adminEfficiencyGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#CBD5E1" strokeOpacity={0.7} />
                         <XAxis
                           dataKey="day"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fontSize: 11.5, fill: "#94A3B8", fontWeight: 700 }}
+                          tick={{ fontSize: 12, fill: "#64748B", fontWeight: 700 }}
                           dy={8}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fontSize: 11.5, fill: "#94A3B8", fontWeight: 700 }}
-                          allowDecimals={false}
+                          tick={{ fontSize: 11.5, fill: "#64748B", fontWeight: 700 }}
+                          unit="%"
+                          domain={[0, 100]}
                         />
                         <Tooltip
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
                               const d = payload[0]?.payload;
-                              const createdVal = d?.rawCreated ?? d?.created ?? 0;
-                              const completedVal = d?.completed ?? 0;
-                              const rate = createdVal > 0 ? Math.round((completedVal / createdVal) * 100) : 0;
                               return (
-                                <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-xl shadow-2xl border border-slate-700/80 text-xs font-semibold space-y-2 min-w-[170px]">
-                                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                                    <p className="font-black text-[13px] text-white">{d?.fullDay || label}</p>
-                                    <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 font-bold border border-indigo-800/60">
-                                      {rate}% Done
-                                    </span>
+                                <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-3 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1.5 min-w-[170px]">
+                                  <p className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1">
+                                    {d?.fullDay || label} {t("dash_stat_done", "Completion")}
+                                  </p>
+                                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                                    <span className="text-slate-500 dark:text-slate-400">{t("dash_resolution_rate", "Resolution Rate:")}</span>
+                                    <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{d?.efficiencyRate ?? 0}%</span>
                                   </div>
-                                  <div className="space-y-1.5 pt-0.5">
-                                    <div className="flex items-center justify-between gap-3 text-[12px]">
-                                      <span className="flex items-center gap-1.5 text-slate-300 font-medium">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-[#5B5FEF]" />
-                                        Created:
-                                      </span>
-                                      <span className="font-mono font-bold text-white">{createdVal}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3 text-[12px]">
-                                      <span className="flex items-center gap-1.5 text-slate-300 font-medium">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
-                                        Completed:
-                                      </span>
-                                      <span className="font-mono font-bold text-emerald-400">{completedVal}</span>
-                                    </div>
+                                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                                    <span>{t("dash_completed_created", "Completed / Created:")}</span>
+                                    <span className="font-mono">{d?.completed} / {d?.rawCreated ?? d?.created}</span>
                                   </div>
                                 </div>
                               );
@@ -2335,50 +2613,49 @@ export const DashboardContent = () => {
                             return null;
                           }}
                         />
-                        <Bar
-                          dataKey="created"
-                          name={t("created_label") || "Created"}
-                          fill="#5B5FEF"
-                          radius={[5, 5, 0, 0]}
-                          maxBarSize={24}
+                        <Area
+                          type="monotone"
+                          dataKey="efficiencyRate"
+                          name={t("dash_completion_pct", "Completion Rate %")}
+                          stroke="#3B82F6"
+                          strokeWidth={2.5}
+                          fill="url(#adminEfficiencyGrad)"
+                          dot={{ r: 3.5, stroke: "#3B82F6", strokeWidth: 2, fill: "#ffffff" }}
+                          activeDot={{ r: 5, stroke: "#3B82F6", strokeWidth: 2, fill: "#ffffff" }}
                         />
-                        <Bar
-                          dataKey="completed"
-                          name={t("completed_label") || "Completed"}
-                          fill="#10B981"
-                          radius={[5, 5, 0, 0]}
-                          maxBarSize={24}
-                        />
-                      </BarChart>
+                      </AreaChart>
                     )}
                   </ResponsiveContainer>
                 </div>
 
-                {/* Footer Legend with Live Distribution Metrics */}
+                {/* Footer Legend with Clear, Understandable Labels */}
                 <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-[12px]">
-                  <div className="flex items-center gap-5">
+                  <div className="flex items-center gap-4 sm:gap-5 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#5B5FEF]" />
+                      <div className="w-2.5 h-2.5 rounded-[3px] bg-[#6366F1]" />
                       <span className="font-bold text-slate-700 dark:text-slate-300">
-                        {t("created_label") || "Created"}
+                        {t("dash_tasks_created", "Tasks Created")}
                       </span>
-                      <span className="px-1.5 py-0.2 bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 text-[11px] font-mono font-bold rounded">
+                      <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 text-[11px] font-mono font-bold rounded">
                         {weeklyVelocityStats.totalCreated}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
+                      <div className="w-2.5 h-2.5 rounded-[3px] bg-[#10B981]" />
                       <span className="font-bold text-slate-700 dark:text-slate-300">
-                        {t("completed_label") || "Completed"}
+                        {t("dash_tasks_completed", "Tasks Completed")}
                       </span>
-                      <span className="px-1.5 py-0.2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 text-[11px] font-mono font-bold rounded">
+                      <span className="px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 text-[11px] font-mono font-bold rounded">
                         {weeklyVelocityStats.totalCompleted}
                       </span>
                     </div>
                   </div>
-                  <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
-                    Peak Activity: <strong className="text-slate-600 dark:text-slate-200">{weeklyVelocityStats.peakDay}</strong>
-                  </span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    <span>{t("dash_highest_activity", "Highest Activity:")}</span>
+                    <strong className="text-slate-800 dark:text-slate-200 font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                      {weeklyVelocityStats.peakDay}
+                    </strong>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3027,10 +3304,10 @@ export const DashboardContent = () => {
                     </div>
                     <div>
                       <h3 className="text-[16px] sm:text-[17px] font-black text-slate-900 dark:text-white">
-                        Team Employee Profiles
+                        {t("dash_team_profiles_title", "Team Employee Profiles")}
                       </h3>
                       <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                        Workforce overview · task performance · department allocation
+                        {t("dash_team_profiles_sub", "Workforce overview · task performance · department allocation")}
                       </p>
                     </div>
                   </div>
@@ -3039,12 +3316,12 @@ export const DashboardContent = () => {
                     {/* Department Filter Pills */}
                     <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700">
                       {[
-                        { id: "all", label: "All" },
-                        { id: "Engineering", label: "Engineering" },
-                        { id: "Operations", label: "Operations" },
-                        { id: "Design", label: "Design" },
-                        { id: "HR", label: "HR" },
-                        { id: "Sales", label: "Sales" },
+                        { id: "all", label: t("dash_all", "All") },
+                        { id: "Engineering", label: translateDept("Engineering") },
+                        { id: "Operations", label: translateDept("Operations") },
+                        { id: "Design", label: translateDept("Design") },
+                        { id: "HR", label: translateDept("HR") },
+                        { id: "Sales", label: translateDept("Sales") },
                       ].map((f) => (
                         <button
                           key={f.id}
@@ -3065,7 +3342,7 @@ export const DashboardContent = () => {
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5B5FEF] hover:bg-[#4A4EDC] text-white text-[12.5px] font-bold shadow-xs transition-all active:scale-95 shrink-0 cursor-pointer"
                     >
                       <Users className="w-3.5 h-3.5" />
-                      <span>Full Directory</span>
+                      <span>{t("dash_full_directory", "Full Directory")}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
@@ -3076,8 +3353,8 @@ export const DashboardContent = () => {
                     <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-3">
                       <Users className="w-6 h-6 text-slate-400" />
                     </div>
-                    <p className="text-[13.5px] font-bold text-slate-600 dark:text-slate-300">No team members found</p>
-                    <p className="text-[12px] text-slate-400 mt-0.5">No profiles match this department filter.</p>
+                    <p className="text-[13.5px] font-bold text-slate-600 dark:text-slate-300">{t("dash_no_team_members", "No team members found")}</p>
+                    <p className="text-[12px] text-slate-400 mt-0.5">{t("dash_no_team_members_sub", "No profiles match this department filter.")}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -3133,7 +3410,7 @@ export const DashboardContent = () => {
 
                             <div className="flex flex-wrap gap-1.5 mb-4">
                               <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${s.bg} ${s.badge}`}>
-                                {dept}
+                                {translateDept(dept)}
                               </span>
                               <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold border bg-slate-100 dark:bg-slate-700/80 text-slate-500 dark:text-slate-300 border-slate-200 dark:border-slate-600 max-w-[140px] truncate">
                                 {emp.role || "Employee"}
@@ -3143,15 +3420,15 @@ export const DashboardContent = () => {
                             <div className="grid grid-cols-3 gap-1.5 mb-3">
                               <div className="p-2 rounded-xl bg-white dark:bg-slate-700/60 border border-slate-100 dark:border-slate-600/40 text-center shadow-2xs">
                                 <p className="text-[15px] font-black text-slate-900 dark:text-white leading-none">{stats.total}</p>
-                                <p className="text-[8.5px] font-extrabold text-slate-400 uppercase tracking-wider mt-0.5">Tasks</p>
+                                <p className="text-[8.5px] font-extrabold text-slate-400 uppercase tracking-wider mt-0.5">{t("dash_stat_tasks", "Tasks")}</p>
                               </div>
                               <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/50 text-center shadow-2xs">
                                 <p className="text-[15px] font-black text-emerald-600 dark:text-emerald-400 leading-none">{stats.completed}</p>
-                                <p className="text-[8.5px] font-extrabold text-emerald-500 uppercase tracking-wider mt-0.5">Done</p>
+                                <p className="text-[8.5px] font-extrabold text-emerald-500 uppercase tracking-wider mt-0.5">{t("dash_stat_done", "Done")}</p>
                               </div>
                               <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 text-center shadow-2xs">
                                 <p className="text-[15px] font-black text-[#5B5FEF] dark:text-indigo-400 leading-none">{stats.rate}%</p>
-                                <p className="text-[8.5px] font-extrabold text-[#5B5FEF] uppercase tracking-wider mt-0.5">Rate</p>
+                                <p className="text-[8.5px] font-extrabold text-[#5B5FEF] uppercase tracking-wider mt-0.5">{t("dash_stat_rate", "Rate")}</p>
                               </div>
                             </div>
 
@@ -3206,10 +3483,10 @@ export const DashboardContent = () => {
                           <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/40 shadow-2xs">
                             <Activity className="w-5 h-5 text-[#5B5FEF]" />
                           </div>
-                          Recent Workspace Activity
+                          {t("dash_recent_activity_title", "Recent Workspace Activity")}
                         </h3>
                         <p className="text-[12px] sm:text-[12.5px] text-slate-500 dark:text-slate-400 font-medium mt-1">
-                          Chronological real-time event log of tasks, state transitions, and team deliveries
+                          {t("dash_recent_activity_sub", "Chronological real-time event log of tasks, state transitions, and team deliveries")}
                         </p>
                       </div>
 
@@ -3217,7 +3494,7 @@ export const DashboardContent = () => {
                         href="/tasks"
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-bold text-[#5B5FEF] bg-indigo-50/60 hover:bg-[#5B5FEF] hover:text-white dark:bg-indigo-950/40 dark:hover:bg-[#5B5FEF] dark:hover:text-white border border-indigo-100/80 dark:border-indigo-900/40 transition-all group shrink-0 self-start sm:self-auto shadow-2xs"
                       >
-                        <span>All Deliverables</span>
+                        <span>{t("dash_all_deliverables", "All Deliverables")}</span>
                         <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
                       </Link>
                     </div>
@@ -3225,10 +3502,10 @@ export const DashboardContent = () => {
                     {/* Filter Segmented Control Bar */}
                     <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-3 mb-3 border-b border-slate-100/80 dark:border-slate-800/80">
                       {[
-                        { id: "all", label: "All Streams", count: tasks.length },
-                        { id: "in_progress", label: "01. In Processing", count: inProgressTasks },
-                        { id: "review", label: "02. In Review", count: inReviewTasks },
-                        { id: "completed", label: "03. Completed", count: completedTasks },
+                        { id: "all", label: t("dash_all_streams", "All Streams"), count: tasks.length },
+                        { id: "in_progress", label: t("dash_in_processing", "01. In Processing"), count: inProgressTasks },
+                        { id: "review", label: t("dash_in_review", "02. In Review"), count: inReviewTasks },
+                        { id: "completed", label: t("dash_completed_stream", "03. Completed"), count: completedTasks },
                       ].map((tab) => (
                         <button
                           key={tab.id}
@@ -3261,8 +3538,8 @@ export const DashboardContent = () => {
                           <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-2 text-slate-400">
                             <Activity className="w-5 h-5" />
                           </div>
-                          <p className="text-[13px] font-bold text-slate-600 dark:text-slate-300">No activity recorded</p>
-                          <p className="text-[11.5px] text-slate-400 mt-0.5">No tasks match the selected activity filter.</p>
+                          <p className="text-[13px] font-bold text-slate-600 dark:text-slate-300">{t("dash_no_activity", "No activity recorded")}</p>
+                          <p className="text-[11.5px] text-slate-400 mt-0.5">{t("dash_no_activity_sub", "No tasks match the selected activity filter.")}</p>
                         </div>
                       ) : (
                         recentActivities.map((act, index) => (
@@ -3326,7 +3603,7 @@ export const DashboardContent = () => {
                                   {/* Department Chip */}
                                   <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-500 dark:text-slate-400 px-1.5 py-0.2 rounded-md bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
                                     <Building2 className="w-2.5 h-2.5 text-[#5B5FEF]" />
-                                    <span className="truncate max-w-[100px]">{act.department}</span>
+                                    <span className="truncate max-w-[100px]">{translateDept(act.department)}</span>
                                   </span>
 
                                   <span className="text-slate-300 dark:text-slate-700">•</span>
@@ -3368,17 +3645,17 @@ export const DashboardContent = () => {
                           </div>
                           <div>
                             <h4 className="text-[12.5px] font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                              Serial Status & Processing Pipeline Report
+                              {t("dash_pipeline_title", "Serial Status & Processing Pipeline Report")}
                             </h4>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                              Sequential workstream lifecycle from backlog queue to verified shipping
+                              {t("dash_pipeline_sub", "Sequential workstream lifecycle from backlog queue to verified shipping")}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 font-extrabold text-[10.5px] border border-indigo-200/80 dark:border-indigo-900/40 flex items-center gap-1.5 shadow-2xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-[#5B5FEF] animate-pulse" />
-                            Live Telemetry Log
+                            {t("dash_live_telemetry", "Live Telemetry Log")}
                           </span>
                         </div>
                       </div>
@@ -3388,14 +3665,14 @@ export const DashboardContent = () => {
                         {/* Stage 01: Queued Backlog */}
                         <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200/70 dark:border-slate-700/60 hover:border-amber-300 dark:hover:border-amber-800 transition-all shadow-2xs">
                           <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] font-black text-slate-400 dark:text-slate-500 tracking-wider">STAGE 01</span>
+                            <span className="text-[9.5px] font-black text-slate-400 dark:text-slate-500 tracking-wider">{t("dash_stage_01", "STAGE 01")}</span>
                             <span className="w-5 h-5 rounded-md bg-amber-50 dark:bg-amber-950/60 flex items-center justify-center">
                               <Clock className="w-3 h-3 text-amber-500" />
                             </span>
                           </div>
                           <p className="text-[17px] font-black text-slate-900 dark:text-white mt-1.5 leading-none">{todoTasks}</p>
                           <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
-                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 truncate">Queued Backlog</span>
+                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 truncate">{t("dash_queued_backlog", "Queued Backlog")}</span>
                             <span className="text-[9.5px] text-slate-400 font-bold">{totalTasks > 0 ? Math.round((todoTasks / totalTasks) * 100) : 0}%</span>
                           </div>
                         </div>
@@ -3403,14 +3680,14 @@ export const DashboardContent = () => {
                         {/* Stage 02: In Processing */}
                         <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900/80 border border-indigo-200/90 dark:border-indigo-900/60 ring-1 ring-[#5B5FEF]/10 hover:border-indigo-400 transition-all shadow-2xs">
                           <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] font-black text-[#5B5FEF] dark:text-indigo-400 tracking-wider">STAGE 02</span>
+                            <span className="text-[9.5px] font-black text-[#5B5FEF] dark:text-indigo-400 tracking-wider">{t("dash_stage_02", "STAGE 02")}</span>
                             <span className="w-5 h-5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center">
                               <Play className="w-3 h-3 text-[#5B5FEF] fill-current" />
                             </span>
                           </div>
                           <p className="text-[17px] font-black text-[#5B5FEF] dark:text-indigo-400 mt-1.5 leading-none">{inProgressTasks}</p>
                           <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
-                            <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300 truncate">In Processing</span>
+                            <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300 truncate">{t("dash_in_proc", "In Processing")}</span>
                             <span className="text-[9.5px] text-[#5B5FEF] font-bold">{totalTasks > 0 ? Math.round((inProgressTasks / totalTasks) * 100) : 0}%</span>
                           </div>
                         </div>
@@ -3418,14 +3695,14 @@ export const DashboardContent = () => {
                         {/* Stage 03: Quality Review */}
                         <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200/70 dark:border-slate-700/60 hover:border-purple-300 dark:hover:border-purple-800 transition-all shadow-2xs">
                           <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] font-black text-slate-400 dark:text-slate-500 tracking-wider">STAGE 03</span>
+                            <span className="text-[9.5px] font-black text-slate-400 dark:text-slate-500 tracking-wider">{t("dash_stage_03", "STAGE 03")}</span>
                             <span className="w-5 h-5 rounded-md bg-purple-50 dark:bg-purple-950/60 flex items-center justify-center">
                               <Eye className="w-3 h-3 text-purple-500" />
                             </span>
                           </div>
                           <p className="text-[17px] font-black text-slate-900 dark:text-white mt-1.5 leading-none">{inReviewTasks}</p>
                           <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
-                            <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 truncate">Quality Review</span>
+                            <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 truncate">{t("dash_quality_review", "Quality Review")}</span>
                             <span className="text-[9.5px] text-slate-400 font-bold">{totalTasks > 0 ? Math.round((inReviewTasks / totalTasks) * 100) : 0}%</span>
                           </div>
                         </div>
@@ -3433,14 +3710,14 @@ export const DashboardContent = () => {
                         {/* Stage 04: Shipped & Delivered */}
                         <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200/70 dark:border-slate-700/60 hover:border-emerald-300 dark:hover:border-emerald-800 transition-all shadow-2xs">
                           <div className="flex items-center justify-between">
-                            <span className="text-[9.5px] font-black text-slate-400 dark:text-slate-500 tracking-wider">STAGE 04</span>
+                            <span className="text-[9.5px] font-black text-slate-400 dark:text-slate-500 tracking-wider">{t("dash_stage_04", "STAGE 04")}</span>
                             <span className="w-5 h-5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center">
                               <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                             </span>
                           </div>
                           <p className="text-[17px] font-black text-slate-900 dark:text-white mt-1.5 leading-none">{completedTasks}</p>
                           <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 truncate">Shipped / Done</span>
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 truncate">{t("dash_shipped_done", "Shipped / Done")}</span>
                             <span className="text-[9.5px] text-slate-400 font-bold">{productivityPercent}%</span>
                           </div>
                         </div>
@@ -3449,17 +3726,17 @@ export const DashboardContent = () => {
                       {/* Serial Pipeline Continuity Line */}
                       <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-700 dark:text-slate-300">Pipeline Progression:</span>
-                          <span className="font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400">01. Queue</span>
+                          <span className="font-bold text-slate-700 dark:text-slate-300">{t("dash_pipeline_progression", "Pipeline Progression:")}</span>
+                          <span className="font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400">{t("dash_step_queue", "01. Queue")}</span>
                           <span>→</span>
-                          <span className="font-mono text-[10px] font-extrabold text-[#5B5FEF] dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded">02. Processing</span>
+                          <span className="font-mono text-[10px] font-extrabold text-[#5B5FEF] dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded">{t("dash_step_processing", "02. Processing")}</span>
                           <span>→</span>
-                          <span className="font-mono text-[10px] font-bold text-purple-600 dark:text-purple-400">03. Review</span>
+                          <span className="font-mono text-[10px] font-bold text-purple-600 dark:text-purple-400">{t("dash_step_review", "03. Review")}</span>
                           <span>→</span>
-                          <span className="font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">04. Shipped</span>
+                          <span className="font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{t("dash_step_shipped", "04. Shipped")}</span>
                         </div>
                         <div className="flex items-center gap-1 font-bold text-[11px] text-slate-600 dark:text-slate-300">
-                          <span>Total Tracked Deliverables:</span>
+                          <span>{t("dash_total_tracked_deliverables", "Total Tracked Deliverables:")}</span>
                           <strong className="text-slate-900 dark:text-white font-black">{totalTasks}</strong>
                         </div>
                       </div>
@@ -3469,7 +3746,7 @@ export const DashboardContent = () => {
                   {/* Activity Pagination Controls */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 mt-4 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex items-center gap-1.5 text-[12px] font-bold text-slate-500 dark:text-slate-400">
-                      <span>Showing</span>
+                      <span>{t("dash_showing", "Showing")}</span>
                       <strong className="text-slate-800 dark:text-white font-extrabold">
                         {filteredTasksForActivity.length > 0
                           ? `${(activityPage - 1) * ACTIVITY_ITEMS_PER_PAGE + 1} - ${Math.min(
@@ -3478,15 +3755,15 @@ export const DashboardContent = () => {
                             )}`
                           : "0"}
                       </strong>
-                      <span>of</span>
+                      <span>{t("dash_of", "of")}</span>
                       <strong className="text-slate-800 dark:text-white font-extrabold">{filteredTasksForActivity.length}</strong>
-                      <span>updates</span>
+                      <span>{t("dash_updates", "updates")}</span>
                     </div>
 
                     {totalActivityPages > 1 && (
                       <div className="flex items-center gap-1.5 self-end sm:self-auto">
                         <span className="text-[11.5px] font-semibold text-slate-400 mr-1">
-                          Page {activityPage} of {totalActivityPages}
+                          {t("dash_page", "Page")} {activityPage} {t("dash_of", "of")} {totalActivityPages}
                         </span>
                         <button
                           type="button"
@@ -3527,10 +3804,10 @@ export const DashboardContent = () => {
                         </div>
                         <div>
                           <h3 className="text-[16px] font-black text-slate-900 dark:text-white">
-                            Enterprise Velocity
+                            {t("dash_enterprise_velocity_title", "Enterprise Velocity")}
                           </h3>
                           <p className="text-[11.5px] text-slate-400 font-medium">
-                            Sprint cadence & deliverable resolution
+                            {t("dash_enterprise_velocity_sub", "Sprint cadence & deliverable resolution")}
                           </p>
                         </div>
                       </div>
@@ -3540,7 +3817,7 @@ export const DashboardContent = () => {
                           : "bg-indigo-50 dark:bg-indigo-950/40 text-[#5B5FEF] dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-900/40"
                       }`}>
                         <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${productivityPercent >= 60 ? "bg-emerald-500" : "bg-[#5B5FEF]"}`} />
-                        <span>{productivityPercent >= 60 ? "Stage: On Track" : "Stage: In Processing"}</span>
+                        <span>{productivityPercent >= 60 ? t("dash_stage_on_track", "Stage: On Track") : t("dash_stage_in_proc", "Stage: In Processing")}</span>
                       </span>
                     </div>
 
@@ -3550,19 +3827,19 @@ export const DashboardContent = () => {
                         <p className="text-[16px] font-black text-[#5B5FEF] dark:text-indigo-400 leading-none">
                           {productivityPercent}%
                         </p>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-1">Resolution</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-1">{t("dash_resolution", "Resolution")}</p>
                       </div>
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-center">
                         <p className="text-[16px] font-black text-emerald-600 dark:text-emerald-400 leading-none">
                           {completedTasks}
                         </p>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-1">Done</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-1">{t("dash_stat_done", "Done")}</p>
                       </div>
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-center">
                         <p className="text-[16px] font-black text-amber-600 dark:text-amber-400 leading-none">
                           {inProgressTasks}
                         </p>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-1">In-Flight</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-1">{t("in_progress", "In-Flight")}</p>
                       </div>
                     </div>
 
@@ -3570,7 +3847,7 @@ export const DashboardContent = () => {
                     <div className="p-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 mb-4">
                       <div className="flex items-center justify-between text-[11.5px] mb-2 font-bold">
                         <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                          <span>Org Milestone Resolution</span>
+                          <span>{t("dash_org_milestone", "Org Milestone Resolution")}</span>
                         </span>
                         <span className="text-[#5B5FEF] dark:text-indigo-400 font-extrabold">{productivityPercent}%</span>
                       </div>
@@ -3587,14 +3864,14 @@ export const DashboardContent = () => {
                       <div className="flex items-center justify-between mb-2.5">
                         <h4 className="text-[11.5px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                           <Award className="w-3.5 h-3.5 text-amber-500" />
-                          Top Sprint Contributors
+                          {t("dash_top_sprint_contributors", "Top Sprint Contributors")}
                         </h4>
-                        <span className="text-[10px] text-slate-400 font-semibold">Ranked by completion</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">{t("dash_ranked_by_completion", "Ranked by completion")}</span>
                       </div>
 
                       <div className="space-y-2">
                         {topContributors.length === 0 ? (
-                          <p className="text-[12px] text-slate-400 py-3 text-center">No active contributor records yet.</p>
+                          <p className="text-[12px] text-slate-400 py-3 text-center">{t("dash_no_active_contributors", "No active contributor records yet.")}</p>
                         ) : (
                           topContributors.map((c, idx) => {
                             const rankStyles = [
@@ -3625,13 +3902,13 @@ export const DashboardContent = () => {
                                     </div>
                                     <div className="min-w-0">
                                       <p className="text-[12px] font-bold text-slate-900 dark:text-white truncate leading-tight">{c.name}</p>
-                                      <p className="text-[9.5px] text-slate-400 font-medium truncate">{c.department}</p>
+                                      <p className="text-[9.5px] text-slate-400 font-medium truncate">{translateDept(c.department)}</p>
                                     </div>
                                   </div>
 
                                   <div className="text-right shrink-0">
                                     <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 font-extrabold text-[10.5px] rounded-md border border-indigo-100/80 dark:border-indigo-900/40">
-                                      {c.completed} / {c.total} tasks
+                                      {c.completed} / {c.total} {t("tasks", "tasks")}
                                     </span>
                                   </div>
                                 </div>
@@ -3663,10 +3940,10 @@ export const DashboardContent = () => {
                         </div>
                         <div>
                           <h3 className="text-[16px] font-black text-slate-900 dark:text-white">
-                            Executive Shortcuts
+                            {t("dash_executive_shortcuts", "Executive Shortcuts")}
                           </h3>
                           <p className="text-[11.5px] text-slate-400 font-medium">
-                            Quick launch actions & infrastructure status
+                            {t("dash_executive_shortcuts_sub", "Quick launch actions & infrastructure status")}
                           </p>
                         </div>
                       </div>
@@ -3683,8 +3960,8 @@ export const DashboardContent = () => {
                           <Plus className="w-3.5 h-3.5" />
                         </div>
                         <div>
-                          <p className="text-[12px] font-extrabold leading-tight">Create Task</p>
-                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">Dispatch to sprint</p>
+                          <p className="text-[12px] font-extrabold leading-tight">{t("dash_create_task", "Create Task")}</p>
+                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">{t("dash_dispatch_to_sprint", "Dispatch to sprint")}</p>
                         </div>
                       </Link>
 
@@ -3697,8 +3974,8 @@ export const DashboardContent = () => {
                           <Users className="w-3.5 h-3.5" />
                         </div>
                         <div>
-                          <p className="text-[12px] font-extrabold leading-tight">Team Roster</p>
-                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">Manage directory</p>
+                          <p className="text-[12px] font-extrabold leading-tight">{t("dash_team_roster", "Team Roster")}</p>
+                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">{t("dash_manage_directory", "Manage directory")}</p>
                         </div>
                       </Link>
 
@@ -3711,8 +3988,8 @@ export const DashboardContent = () => {
                           <Sparkles className="w-3.5 h-3.5" />
                         </div>
                         <div>
-                          <p className="text-[12px] font-extrabold leading-tight">Deep Analytics</p>
-                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">Productivity KPIs</p>
+                          <p className="text-[12px] font-extrabold leading-tight">{t("dash_deep_analytics", "Deep Analytics")}</p>
+                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">{t("dash_productivity_kpis", "Productivity KPIs")}</p>
                         </div>
                       </Link>
 
@@ -3725,8 +4002,8 @@ export const DashboardContent = () => {
                           <Shield className="w-3.5 h-3.5" />
                         </div>
                         <div>
-                          <p className="text-[12px] font-extrabold leading-tight">Audit Vault</p>
-                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">Security & logs</p>
+                          <p className="text-[12px] font-extrabold leading-tight">{t("dash_audit_vault", "Audit Vault")}</p>
+                          <p className="text-[10px] text-slate-400 group-hover:text-indigo-100 transition-colors">{t("dash_security_logs", "Security & logs")}</p>
                         </div>
                       </Link>
                     </div>
@@ -3740,7 +4017,7 @@ export const DashboardContent = () => {
                             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                           </span>
                           <span className="text-[11.5px] font-extrabold text-slate-800 dark:text-slate-200">
-                            Cloud Services Operational
+                            {t("dash_cloud_operational", "Cloud Services Operational")}
                           </span>
                         </div>
                         <span className="text-[11px] font-mono font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200/80 dark:border-emerald-900/40">
@@ -3749,11 +4026,11 @@ export const DashboardContent = () => {
                       </div>
 
                       <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                        <span>Cluster: MongoDB Atlas</span>
+                        <span>{t("dash_cluster_mongodb", "Cluster: MongoDB Atlas")}</span>
                         <span>•</span>
                         <span>Latency: 24ms</span>
                         <span>•</span>
-                        <span>SSL Encrypted</span>
+                        <span>{t("dash_ssl_encrypted", "SSL Encrypted")}</span>
                       </div>
                     </div>
                   </div>
@@ -3776,10 +4053,10 @@ export const DashboardContent = () => {
                   <div>
                     <h3 className="text-[16px] font-black text-slate-900 dark:text-white flex items-center gap-2">
                       <Target className="w-5 h-5 text-[#5B5FEF]" />
-                      Workload Distribution
+                      {t("dash_workload_dist", "Workload Distribution")}
                     </h3>
                     <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                      Real-time breakdown of assigned deliverables
+                      {t("dash_workload_sub", "Real-time breakdown of assigned deliverables")}
                     </p>
                   </div>
 
@@ -3794,7 +4071,7 @@ export const DashboardContent = () => {
                           : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                       }`}
                     >
-                      By Status
+                      {t("dash_by_status", "By Status")}
                     </button>
                     <button
                       type="button"
@@ -3805,7 +4082,7 @@ export const DashboardContent = () => {
                           : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                       }`}
                     >
-                      By Priority
+                      {t("dash_by_priority", "By Priority")}
                     </button>
                   </div>
                 </div>
@@ -3872,10 +4149,10 @@ export const DashboardContent = () => {
                         {tasks.length}
                       </span>
                       <span className="text-[9.5px] font-extrabold text-slate-400 uppercase tracking-wider mt-0.5">
-                        Total Tasks
+                        {t("dash_total_tasks_label", "Total Tasks")}
                       </span>
                       <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-900/40">
-                        {productivityPercent}% Shipped
+                        {productivityPercent}% {t("dash_shipped_label", "Shipped")}
                       </span>
                     </div>
                   </div>
@@ -3938,13 +4215,13 @@ export const DashboardContent = () => {
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11.5px] font-bold text-slate-400">
                   <span className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#5B5FEF] animate-pulse" />
-                    <span>In-flight workload: {tasks.length - completedTasks} deliverables</span>
+                    <span>{t("in_flight_workload", "In-flight workload")}: {tasks.length - completedTasks} {t("dash_tasks_deliverables", "deliverables")}</span>
                   </span>
                   <Link
                     href="/tasks"
                     className="text-[#5B5FEF] hover:underline flex items-center gap-1 font-extrabold"
                   >
-                    <span>View all tasks</span>
+                    <span>{t("view_all_tasks", "View all tasks")}</span>
                     <ArrowRight className="w-3 h-3" />
                   </Link>
                 </div>
@@ -3957,10 +4234,10 @@ export const DashboardContent = () => {
                   <div>
                     <h3 className="text-[16px] font-black text-slate-900 dark:text-white flex items-center gap-2">
                       <TrendingUp className="w-5 h-5 text-[#5B5FEF]" />
-                      Weekly Delivery Velocity
+                      {t("weekly_delivery_velocity", "Weekly Delivery Velocity")}
                     </h3>
                     <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                      Sprint execution cadence & cumulative resolution momentum (Mon–Sun)
+                      {t("weekly_delivery_velocity_sub", "Sprint execution cadence & cumulative resolution momentum (Mon–Sun)")}
                     </p>
                   </div>
 
@@ -3978,7 +4255,7 @@ export const DashboardContent = () => {
                         title="Display as Smooth Continuous Area Velocity Curve"
                       >
                         <TrendingUp className="w-3 h-3" />
-                        <span>Trend Wave</span>
+                        <span>{t("trend_wave", "Trend Wave")}</span>
                       </button>
                       <button
                         type="button"
@@ -3991,13 +4268,13 @@ export const DashboardContent = () => {
                         title="Display as Daily Distribution Bars"
                       >
                         <BarChart3 className="w-3 h-3" />
-                        <span>Daily Bars</span>
+                        <span>{t("daily_bars", "Daily Bars")}</span>
                       </button>
                     </div>
 
                     <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/40 rounded-lg text-[11px] font-black flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      {productivityPercent}% Shipped
+                      {productivityPercent}% {t("dash_shipped_label", "Shipped")}
                     </span>
                   </div>
                 </div>
@@ -4005,16 +4282,16 @@ export const DashboardContent = () => {
                 {/* Top Mini KPI Stats Strip */}
                 <div className="grid grid-cols-3 gap-2 my-2 py-2 px-3 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
                   <div className="text-center">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Workload</p>
-                    <p className="text-[14px] font-black text-slate-900 dark:text-white font-mono">{tasks.length} Tasks</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t("total_workload", "Total Workload")}</p>
+                    <p className="text-[14px] font-black text-slate-900 dark:text-white font-mono">{tasks.length} {t("tasks", "Tasks")}</p>
                   </div>
                   <div className="text-center border-x border-slate-200/60 dark:border-slate-700/60">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In-Flight Momentum</p>
-                    <p className="text-[14px] font-black text-[#5B5FEF] dark:text-indigo-400 font-mono">{inProgressTasks + inReviewTasks} Active</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t("inflight_momentum", "In-Flight Momentum")}</p>
+                    <p className="text-[14px] font-black text-[#5B5FEF] dark:text-indigo-400 font-mono">{inProgressTasks + inReviewTasks} {t("active_status", "Active")}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sprint Resolved</p>
-                    <p className="text-[14px] font-black text-emerald-600 dark:text-emerald-400 font-mono">{completedTasks} Shipped</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t("sprint_resolved", "Sprint Resolved")}</p>
+                    <p className="text-[14px] font-black text-emerald-600 dark:text-emerald-400 font-mono">{completedTasks} {t("dash_shipped_label", "Shipped")}</p>
                   </div>
                 </div>
 
@@ -4148,15 +4425,15 @@ export const DashboardContent = () => {
                   <div className="flex items-center gap-5">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#5B5FEF] shadow-2xs" />
-                      <span className="text-slate-600 dark:text-slate-300">Active In-Flight Workload</span>
+                      <span className="text-slate-600 dark:text-slate-300">{t("active_inflight_workload", "Active In-Flight Workload")}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#10B981] shadow-2xs" />
-                      <span className="text-slate-600 dark:text-slate-300">Delivered & Shipped</span>
+                      <span className="text-slate-600 dark:text-slate-300">{t("delivered_and_shipped", "Delivered & Shipped")}</span>
                     </div>
                   </div>
                   <span className="text-slate-400 font-medium hidden sm:inline">
-                    Sprint Cadence: Mon–Sun
+                    {t("sprint_cadence_week", "Sprint Cadence: Mon–Sun")}
                   </span>
                 </div>
               </div>
@@ -4176,12 +4453,12 @@ export const DashboardContent = () => {
                       </span>
                       <span className="px-2 py-0.5 rounded-md text-[10.5px] font-black uppercase tracking-wider bg-rose-50 dark:bg-rose-950/60 text-rose-600 border border-rose-200/80 dark:border-rose-900/50 flex items-center gap-1">
                         <Flame className="w-3 h-3 text-rose-500" />
-                        Priority Action
+                        {t("priority_action", "Priority Action")}
                       </span>
                       {topFocusTask.dueDate && (
                         <span className="text-[11.5px] font-semibold text-slate-500 flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
-                          Due {new Date(topFocusTask.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {t("due_label", "Due")} {new Date(topFocusTask.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         </span>
                       )}
                     </div>
@@ -4208,7 +4485,7 @@ export const DashboardContent = () => {
                       ) : (
                         <Play className="w-3.5 h-3.5" />
                       )}
-                      <span>Start Working</span>
+                      <span>{t("start_working", "Start Working")}</span>
                     </button>
                   )}
 
@@ -4223,7 +4500,7 @@ export const DashboardContent = () => {
                       ) : (
                         <Check className="w-3.5 h-3.5" />
                       )}
-                      <span>Mark Complete</span>
+                      <span>{t("mark_complete", "Mark Complete")}</span>
                     </button>
                   )}
 
@@ -4231,7 +4508,7 @@ export const DashboardContent = () => {
                     href={`/tasks?search=${encodeURIComponent(topFocusTask.title)}`}
                     className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[12.5px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
                   >
-                    <span>Board View</span>
+                    <span>{t("board_view", "Board View")}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
@@ -4250,23 +4527,23 @@ export const DashboardContent = () => {
                     <div>
                       <h3 className="text-[17px] font-black text-slate-900 dark:text-white flex items-center gap-2">
                         <CheckSquare className="w-5 h-5 text-[#5B5FEF]" />
-                        My Assigned Deliverables
+                        {t("my_assigned_deliverables", "My Assigned Deliverables")}
                         <span className="text-[11.5px] font-extrabold px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/40">
                           {employeeFilteredTasks.length}
                         </span>
                       </h3>
                       <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                        Interactive sprint execution · 1-click status updates
+                        {t("my_assigned_sub", "Interactive sprint execution · 1-click status updates")}
                       </p>
                     </div>
 
                     {/* Filter Pills */}
                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11.5px] font-bold">
                       {[
-                        { id: "all", label: `All (${tasks.length})` },
-                        { id: "in_progress", label: `In Progress (${inProgressTasks})` },
-                        { id: "todo", label: `To Do (${todoTasks})` },
-                        { id: "completed", label: `Shipped (${completedTasks})` },
+                        { id: "all", label: `${t("dash_all", "All")} (${tasks.length})` },
+                        { id: "in_progress", label: `${t("in_progress", "In Progress")} (${inProgressTasks})` },
+                        { id: "todo", label: `${t("pending", "To Do")} (${todoTasks})` },
+                        { id: "completed", label: `${t("dash_shipped_label", "Shipped")} (${completedTasks})` },
                       ].map((f) => (
                         <button
                           key={f.id}
@@ -4291,8 +4568,8 @@ export const DashboardContent = () => {
                     {employeeFilteredTasks.length === 0 ? (
                       <div className="py-12 text-center bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-6">
                         <CircleDashed className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                        <p className="text-[13.5px] font-bold text-slate-700 dark:text-slate-300">No deliverables in this view</p>
-                        <p className="text-[12px] text-slate-400 mt-0.5">Change filter pill to see other assigned deliverables.</p>
+                        <p className="text-[13.5px] font-bold text-slate-700 dark:text-slate-300">{t("no_deliverables_view", "No deliverables in this view")}</p>
+                        <p className="text-[12px] text-slate-400 mt-0.5">{t("change_filter_pill", "Change filter pill to see other assigned deliverables.")}</p>
                       </div>
                     ) : (
                       paginatedEmployeeTasks.map((task) => {
@@ -4330,7 +4607,7 @@ export const DashboardContent = () => {
                                 </span>
                                 {task.department && (
                                   <span className="text-[11px] font-bold text-slate-400">
-                                    {task.department}
+                                    {translateDept(task.department)}
                                   </span>
                                 )}
                               </div>
@@ -4339,7 +4616,7 @@ export const DashboardContent = () => {
                                 {task.dueDate && (
                                   <span className="text-[11.5px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80">
                                     <Clock className="w-3 h-3 text-slate-400" />
-                                    Due {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                    {t("due_label", "Due")} {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                                   </span>
                                 )}
                                 <Link
@@ -4372,10 +4649,10 @@ export const DashboardContent = () => {
                             <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
                               <div className="flex items-center gap-1 bg-white dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs w-full sm:w-auto">
                                 {[
-                                  { key: "todo", label: "To Do", bg: "bg-amber-500 text-white" },
-                                  { key: "in_progress", label: "In Progress", bg: "bg-[#5B5FEF] text-white" },
-                                  { key: "review", label: "Review", bg: "bg-purple-600 text-white" },
-                                  { key: "completed", label: "Done", bg: "bg-emerald-600 text-white" },
+                                  { key: "todo", label: t("pending", "To Do"), bg: "bg-amber-500 text-white" },
+                                  { key: "in_progress", label: t("in_progress", "In Progress"), bg: "bg-[#5B5FEF] text-white" },
+                                  { key: "review", label: t("dash_step_review", "Review"), bg: "bg-purple-600 text-white" },
+                                  { key: "completed", label: t("dash_stat_done", "Done"), bg: "bg-emerald-600 text-white" },
                                 ].map((st) => {
                                   const active = task.status === st.key;
                                   return (
@@ -4400,7 +4677,7 @@ export const DashboardContent = () => {
                               </div>
 
                               <span className="text-[11px] font-bold text-slate-400">
-                                {isDone ? "Shipped & Recorded" : "Click status to update"}
+                                {isDone ? t("shipped_and_recorded", "Shipped & Recorded") : t("click_status_update", "Click status to update")}
                               </span>
                             </div>
                           </div>
@@ -4413,7 +4690,7 @@ export const DashboardContent = () => {
                   {employeeFilteredTasks.length > 0 && (
                     <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-[12px] font-bold">
                       <div className="text-slate-500 dark:text-slate-400">
-                        Showing{" "}
+                        {t("dash_showing", "Showing")}{" "}
                         <span className="font-black text-slate-800 dark:text-white">
                           {showAllEmployeeTasks
                             ? `1–${employeeFilteredTasks.length}`
@@ -4422,11 +4699,11 @@ export const DashboardContent = () => {
                                 employeeFilteredTasks.length
                               )}`}
                         </span>{" "}
-                        of{" "}
+                        {t("dash_of", "of")}{" "}
                         <span className="font-black text-slate-800 dark:text-white">
                           {employeeFilteredTasks.length}
                         </span>{" "}
-                        deliverables
+                        {t("dash_tasks_deliverables", "deliverables")}
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -4437,7 +4714,7 @@ export const DashboardContent = () => {
                             onClick={() => setShowAllEmployeeTasks((prev) => !prev)}
                             className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer text-[11.5px]"
                           >
-                            {showAllEmployeeTasks ? "Show Paginated" : `Show All (${employeeFilteredTasks.length})`}
+                            {showAllEmployeeTasks ? t("show_paginated", "Show Paginated") : `${t("show_all_label", "Show All")} (${employeeFilteredTasks.length})`}
                           </button>
                         )}
 
@@ -4471,7 +4748,7 @@ export const DashboardContent = () => {
                           href="/tasks"
                           className="px-3.5 py-1.5 rounded-xl bg-[#5B5FEF] hover:bg-[#4A4EDC] text-white text-[11.5px] font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ml-1"
                         >
-                          <span>Full Board</span>
+                          <span>{t("full_board", "Full Board")}</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </Link>
                       </div>
@@ -4485,19 +4762,19 @@ export const DashboardContent = () => {
                     <div>
                       <h3 className="text-[16px] font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                         <Activity className="w-4.5 h-4.5 text-[#5B5FEF]" />
-                        Recent Deliverable Activity & Audit Trail
+                        {t("recent_deliv_audit", "Recent Deliverable Activity & Audit Trail")}
                       </h3>
-                      <p className="text-[12px] text-slate-500 font-medium mt-0.5">Audit log of your recently modified sprint deliverables</p>
+                      <p className="text-[12px] text-slate-500 font-medium mt-0.5">{t("recent_deliv_sub", "Audit log of your recently modified sprint deliverables")}</p>
                     </div>
                     <Link href="/tasks" className="text-[12.5px] font-bold text-[#5B5FEF] hover:underline flex items-center gap-1 group">
-                      <span>All Deliverables</span>
+                      <span>{t("dash_all_deliverables", "All Deliverables")}</span>
                       <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </div>
 
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     {recentActivities.length === 0 ? (
-                      <div className="py-8 text-center text-slate-500 font-medium">No activity recorded yet.</div>
+                      <div className="py-8 text-center text-slate-500 font-medium">{t("dash_no_activity", "No activity recorded yet.")}</div>
                     ) : (
                       recentActivities.map((act) => (
                         <div key={act.id} className="py-3 flex items-center justify-between gap-4 group">
@@ -4533,11 +4810,11 @@ export const DashboardContent = () => {
                   {totalActivityPages > 1 && (
                     <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
                       <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-slate-400">
-                        <span>Page</span>
+                        <span>{t("dash_page", "Page")}</span>
                         <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-black text-[11px]">
                           {activityPage}
                         </span>
-                        <span>of {totalActivityPages}</span>
+                        <span>{t("dash_of", "of")} {totalActivityPages}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <button
@@ -4576,9 +4853,9 @@ export const DashboardContent = () => {
                       </div>
                       <div>
                         <h3 className="text-[15px] font-black text-slate-900 dark:text-white leading-tight">
-                          Sprint Schedule
+                          {t("sprint_schedule", "Sprint Schedule")}
                         </h3>
-                        <p className="text-[11.5px] text-slate-400 font-medium">Calendar & sprint milestones</p>
+                        <p className="text-[11.5px] text-slate-400 font-medium">{t("calendar_milestones", "Calendar & sprint milestones")}</p>
                       </div>
                     </div>
 
@@ -4586,7 +4863,7 @@ export const DashboardContent = () => {
                       onClick={handleJumpToToday}
                       className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
                     >
-                      Today
+                      {t("today", "Today")}
                     </button>
                   </div>
 
@@ -4613,7 +4890,7 @@ export const DashboardContent = () => {
 
                   {/* Day-of-week headers */}
                   <div className="grid grid-cols-7 text-center text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    <div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div><div>Su</div>
+                    <div>{t("day_mo", "Mo")}</div><div>{t("day_tu", "Tu")}</div><div>{t("day_we", "We")}</div><div>{t("day_th", "Th")}</div><div>{t("day_fr", "Fr")}</div><div>{t("day_sa", "Sa")}</div><div>{t("day_su", "Su")}</div>
                   </div>
 
                   {/* Day buttons grid */}
@@ -4672,12 +4949,12 @@ export const DashboardContent = () => {
                         {selectedDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         {selectedDate.toDateString() === new Date().toDateString() && (
                           <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-[#5B5FEF] font-bold">
-                            Today
+                            {t("today", "Today")}
                           </span>
                         )}
                       </span>
                       <span className="text-[11px] font-extrabold text-slate-400">
-                        {selectedDateTasks.length > 0 ? `${selectedDateTasks.length} Scheduled` : "Upcoming Milestones"}
+                        {selectedDateTasks.length > 0 ? `${selectedDateTasks.length} ${t("scheduled_label", "Scheduled")}` : t("upcoming_milestones", "Upcoming Milestones")}
                       </span>
                     </div>
 
@@ -4714,8 +4991,8 @@ export const DashboardContent = () => {
                     ) : (
                       <div className="space-y-1.5">
                         <div className="p-2 rounded-xl bg-slate-50/60 dark:bg-slate-800/30 border border-slate-100/80 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                          <span>No specific deadlines on this date</span>
-                          <span className="text-[#5B5FEF] font-bold text-[10.5px]">Upcoming:</span>
+                          <span>{t("no_deadlines_date", "No specific deadlines on this date")}</span>
+                          <span className="text-[#5B5FEF] font-bold text-[10.5px]">{t("upcoming_label", "Upcoming:")}</span>
                         </div>
                         
                         {upcomingSprintDeadlines.slice(0, 3).map((upTask) => {
@@ -4767,13 +5044,13 @@ export const DashboardContent = () => {
                       </div>
                       <div>
                         <h4 className="text-[14.5px] font-black text-slate-900 dark:text-white leading-tight">
-                          Sprint Velocity
+                          {t("sprint_velocity", "Sprint Velocity")}
                         </h4>
-                        <p className="text-[11px] text-slate-400 font-medium">Delivery resolution rate</p>
+                        <p className="text-[11px] text-slate-400 font-medium">{t("delivery_resolution_rate", "Delivery resolution rate")}</p>
                       </div>
                     </div>
                     <span className="text-[13px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-xl border border-emerald-200/60 dark:border-emerald-900/60">
-                      {productivityPercent}% Rate
+                      {productivityPercent}% {t("rate", "Rate")}
                     </span>
                   </div>
 
@@ -4786,15 +5063,15 @@ export const DashboardContent = () => {
                     </div>
                     <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                       <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">In Flight</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">{t("in_progress", "In Flight")}</p>
                         <p className="text-[14px] font-black text-[#5B5FEF] dark:text-indigo-400">{inProgressTasks}</p>
                       </div>
                       <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Backlog</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">{t("pending_backlog", "Backlog")}</p>
                         <p className="text-[14px] font-black text-amber-600 dark:text-amber-400">{todoTasks}</p>
                       </div>
                       <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Shipped</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">{t("dash_stat_done", "Shipped")}</p>
                         <p className="text-[14px] font-black text-emerald-600 dark:text-emerald-400">{completedTasks}</p>
                       </div>
                     </div>
@@ -4810,15 +5087,15 @@ export const DashboardContent = () => {
                       </div>
                       <div>
                         <h3 className="text-[14.5px] font-black text-slate-900 dark:text-white leading-tight">
-                          Department Team
+                          {t("department_team", "Department Team")}
                         </h3>
                         <p className="text-[11px] text-slate-400 font-medium">
-                          {user?.department || "Operations"} Unit
+                          {user?.department ? translateDept(user.department) : t("dept_operations", "Operations")} {t("unit_label", "Unit")}
                         </p>
                       </div>
                     </div>
                     <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 rounded-lg text-[10.5px] font-extrabold border border-emerald-200/60 dark:border-emerald-900/60">
-                      {(dashboardData?.deptColleagues || []).length + 1} Active
+                      {(dashboardData?.deptColleagues || []).length + 1} {t("active_status", "Active")}
                     </span>
                   </div>
 
@@ -4826,8 +5103,8 @@ export const DashboardContent = () => {
                     {(dashboardData?.deptColleagues || []).length === 0 ? (
                       <div className="py-5 text-center bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-3">
                         <Building2 className="w-5 h-5 text-slate-400 mx-auto mb-1" />
-                        <p className="text-[12px] font-bold text-slate-600 dark:text-slate-300">Leading {user?.department || "this unit"}</p>
-                        <p className="text-[10.5px] text-slate-400 mt-0.5">Primary point of contact.</p>
+                        <p className="text-[12px] font-bold text-slate-600 dark:text-slate-300">{t("leading_unit", "Leading")} {user?.department ? translateDept(user.department) : t("unit_label", "this unit")}</p>
+                        <p className="text-[10.5px] text-slate-400 mt-0.5">{t("primary_contact", "Primary point of contact.")}</p>
                       </div>
                     ) : (
                       (dashboardData?.deptColleagues || []).slice(0, 4).map((col: any) => (
@@ -4867,12 +5144,12 @@ export const DashboardContent = () => {
                   </div>
 
                   <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] font-bold">
-                    <span className="text-slate-400">Team Collaboration</span>
+                    <span className="text-slate-400">{t("team_collaboration", "Team Collaboration")}</span>
                     <Link
                       href="/tasks"
                       className="text-[#5B5FEF] hover:underline flex items-center gap-1 font-bold"
                     >
-                      <span>Share Workload</span>
+                      <span>{t("share_workload", "Share Workload")}</span>
                       <ArrowRight className="w-3 h-3" />
                     </Link>
                   </div>
@@ -4903,8 +5180,7 @@ export const DashboardContent = () => {
               selectedProject.department === "Operations" ? "from-amber-500 to-amber-400" :
               selectedProject.department === "Design" ? "from-sky-500 to-sky-400" :
               selectedProject.department === "IT & Security" ? "from-emerald-500 to-teal-400" :
-              selectedProject.department === "Sales" ? "from-rose-500 to-pink-400" :
-              "from-purple-500 to-purple-400"
+              selectedProject.department === "Sales" ? "from-rose-500 to-pink-400" : "from-purple-500 to-indigo-400"
             }`} />
 
             {/* Header */}
@@ -4915,7 +5191,7 @@ export const DashboardContent = () => {
                     {selectedProject.code}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-[#5B5FEF] dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50">
-                    {selectedProject.department}
+                    {translateDept(selectedProject.department)}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-900/40 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -4944,22 +5220,22 @@ export const DashboardContent = () => {
               {/* 4 Stats Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Work Done</span>
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">{t("work_done", "Work Done")}</span>
                   <p className="text-[16px] font-black text-[#5B5FEF] dark:text-indigo-400">{selectedProject.progress}%</p>
-                  <span className="text-[10.5px] text-slate-500 dark:text-slate-400 font-bold">{selectedProject.completedTasks} / {selectedProject.totalTasks} Tasks</span>
+                  <span className="text-[10.5px] text-slate-500 dark:text-slate-400 font-bold">{selectedProject.completedTasks} / {selectedProject.totalTasks} {t("tasks", "Tasks")}</span>
                 </div>
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Target Date</span>
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">{t("target_date", "Target Date")}</span>
                   <p className="text-[15px] font-black text-slate-800 dark:text-slate-200">{selectedProject.targetDate}</p>
-                  <span className="text-[10.5px] text-emerald-600 font-bold">On Schedule</span>
+                  <span className="text-[10.5px] text-emerald-600 font-bold">{t("on_schedule", "On Schedule")}</span>
                 </div>
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Team Assigned</span>
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">{t("team_assigned", "Team Assigned")}</span>
                   <p className="text-[16px] font-black text-slate-800 dark:text-slate-200">{selectedProject.contributorsCount}</p>
-                  <span className="text-[10.5px] text-slate-500 dark:text-slate-400 font-bold">Personnel Handling</span>
+                  <span className="text-[10.5px] text-slate-500 dark:text-slate-400 font-bold">{t("dash_personnel_handling", "Personnel Handling")}</span>
                 </div>
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Budget Health</span>
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">{t("budget_health", "Budget Health")}</span>
                   <p className="text-[15px] font-black text-emerald-600 dark:text-emerald-400">{selectedProject.budgetHealth || "Optimized"}</p>
                   <span className="text-[10.5px] text-slate-500 dark:text-slate-400 font-bold">99.9% Efficiency</span>
                 </div>
@@ -4968,8 +5244,8 @@ export const DashboardContent = () => {
               {/* Progress Bar in Modal */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60 space-y-2">
                 <div className="flex items-center justify-between text-[12px] font-bold">
-                  <span className="text-slate-700 dark:text-slate-300">Overall Deliverables Progress</span>
-                  <span className="text-[#5B5FEF] dark:text-indigo-400 font-extrabold">{selectedProject.progress}% Completed</span>
+                  <span className="text-slate-700 dark:text-slate-300">{t("overall_deliv_progress", "Overall Deliverables Progress")}</span>
+                  <span className="text-[#5B5FEF] dark:text-indigo-400 font-extrabold">{selectedProject.progress}% {t("completed", "Completed")}</span>
                 </div>
                 <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
                   <div
@@ -4982,7 +5258,7 @@ export const DashboardContent = () => {
               {/* Appointed Project Manager */}
               <div>
                 <h4 className="text-[13px] font-black text-slate-900 dark:text-white uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                  <Crown className="w-4 h-4 text-amber-500" /> Appointed Project Manager
+                  <Crown className="w-4 h-4 text-amber-500" /> {t("dash_appointed_manager", "Appointed Project Manager")}
                 </h4>
                 <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
@@ -4998,7 +5274,7 @@ export const DashboardContent = () => {
                         {selectedProject.manager?.name || "Appointed Manager"}
                       </p>
                       <p className="text-[11.5px] text-slate-500 dark:text-slate-400 font-medium truncate">
-                        {selectedProject.manager?.role || "Project Lead"} · {selectedProject.manager?.email || "manager@empsphere.io"}
+                        {selectedProject.manager?.role || t("dash_project_lead", "Project Lead")} · {selectedProject.manager?.email || "manager@empsphere.io"}
                       </p>
                     </div>
                   </div>
@@ -5013,7 +5289,7 @@ export const DashboardContent = () => {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#5B5FEF] hover:bg-[#4D51DB] text-white text-[11.5px] font-bold shadow-2xs transition-all cursor-pointer shrink-0"
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Dispatch Task</span>
+                    <span>{t("dash_dispatch_initiative", "Dispatch Task")}</span>
                   </button>
                 </div>
               </div>
@@ -5022,10 +5298,10 @@ export const DashboardContent = () => {
               <div>
                 <div className="flex items-center justify-between mb-2.5">
                   <h4 className="text-[13px] font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-[#5B5FEF]" /> Personnel Handling ({selectedProject.contributorsCount})
+                    <Users className="w-4 h-4 text-[#5B5FEF]" /> {t("dash_personnel_handling", "Personnel Handling")} ({selectedProject.contributorsCount})
                   </h4>
                   <span className="text-[11.5px] font-bold text-slate-500 dark:text-slate-400">
-                    {selectedProject.department} Team
+                    {translateDept(selectedProject.department)} {t("badge_team", "Team")}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
@@ -5060,13 +5336,13 @@ export const DashboardContent = () => {
               <div>
                 <div className="flex items-center justify-between mb-2.5">
                   <h4 className="text-[13px] font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <CheckSquare className="w-4 h-4 text-emerald-500" /> Active Deliverables & Tasks
+                    <CheckSquare className="w-4 h-4 text-emerald-500" /> {t("active_pipeline", "Active Deliverables & Tasks")}
                   </h4>
                   <Link
                     href={`/tasks?department=${encodeURIComponent(selectedProject.department)}`}
                     className="text-[11.5px] font-bold text-[#5B5FEF] dark:text-indigo-400 hover:underline flex items-center gap-1"
                   >
-                    <span>View All Tasks</span>
+                    <span>{t("view_all_tasks", "View All Tasks")}</span>
                     <ArrowUpRight className="w-3 h-3" />
                   </Link>
                 </div>
@@ -5110,7 +5386,7 @@ export const DashboardContent = () => {
                 ) : (
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 text-center">
                     <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium">
-                      No standalone tasks filed yet for {selectedProject.department}. You can dispatch new tasks directly to the manager.
+                      {t("no_standalone_tasks", `No standalone tasks filed yet for ${selectedProject.department}. You can dispatch new tasks directly to the manager.`)}
                     </p>
                   </div>
                 )}
@@ -5124,7 +5400,7 @@ export const DashboardContent = () => {
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[12px] font-bold hover:border-[#5B5FEF] transition-all"
               >
                 <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                <span>Open Tasks Workspace</span>
+                <span>{t("tasks_workspace", "Open Tasks Workspace")}</span>
               </Link>
 
               <div className="flex items-center gap-2">
@@ -5133,7 +5409,7 @@ export const DashboardContent = () => {
                   onClick={() => setSelectedProject(null)}
                   className="px-4 py-2 rounded-xl text-[12px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                 >
-                  Close
+                  {t("cancel", "Close")}
                 </button>
                 <button
                   type="button"
@@ -5146,7 +5422,7 @@ export const DashboardContent = () => {
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5B5FEF] hover:bg-[#4D51DB] text-white text-[12px] font-bold shadow-xs transition-all cursor-pointer"
                 >
                   <Zap className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Dispatch Task</span>
+                  <span>{t("dash_dispatch_initiative", "Dispatch Action")}</span>
                 </button>
               </div>
             </div>
@@ -5168,10 +5444,10 @@ export const DashboardContent = () => {
                 </div>
                 <div>
                   <h2 className="text-[18px] font-black text-slate-900 dark:text-white">
-                    Dispatch Deliverable to Manager
+                    {t("dispatch_modal_title", "Dispatch Deliverable to Manager")}
                   </h2>
                   <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400">
-                    Super Admin Task & Strategic Project Assignment
+                    {t("dispatch_modal_sub", "Super Admin Task & Strategic Project Assignment")}
                   </p>
                 </div>
               </div>
@@ -5188,7 +5464,7 @@ export const DashboardContent = () => {
               {/* Select Manager */}
               <div>
                 <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Assign to Department Manager <span className="text-red-500">*</span>
+                  {t("assign_to_manager", "Assign to Department Manager")} <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={dispatchManagerId}
@@ -5203,20 +5479,20 @@ export const DashboardContent = () => {
                   }}
                   className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-purple-500 outline-none transition-colors cursor-pointer"
                 >
-                  <option value="" disabled>-- Select a Manager or Contributor --</option>
+                  <option value="" disabled>{t("select_mgr_contributor", "-- Select a Manager or Contributor --")}</option>
                   {managersList.length > 0 && (
-                    <optgroup label="👑 Appointed Department Managers">
+                    <optgroup label={t("optgroup_managers", "👑 Appointed Department Managers")}>
                       {managersList.map((m: any) => (
                         <option key={m.id || m._id} value={m.id || m._id}>
-                          {m.name} ({m.department} • {m.activeTasks} Active Tasks)
+                          {m.name} ({translateDept(m.department)} • {m.activeTasks} {t("active_tasks", "Active Tasks")})
                         </option>
                       ))}
                     </optgroup>
                   )}
-                  <optgroup label="👥 All Enterprise Personnel">
+                  <optgroup label={t("optgroup_all_personnel", "👥 All Enterprise Personnel")}>
                     {employees.map((emp: any) => (
                       <option key={emp.id || emp._id} value={emp.id || emp._id}>
-                        {emp.firstName} {emp.lastName} ({emp.department} • {emp.role})
+                        {emp.firstName} {emp.lastName} ({translateDept(emp.department)} • {emp.role})
                       </option>
                     ))}
                   </optgroup>
@@ -5226,13 +5502,13 @@ export const DashboardContent = () => {
               {/* Project / Task Title */}
               <div>
                 <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Project / Task Title <span className="text-red-500">*</span>
+                  {t("dispatch_title_label", "Project / Task Title")} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={dispatchTitle}
                   onChange={(e) => setDispatchTitle(e.target.value)}
-                  placeholder="e.g. Q4 Security Compliance Audit & Access Verification"
+                  placeholder={t("dispatch_title_placeholder", "e.g. Q4 Security Compliance Audit & Access Verification")}
                   className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-purple-500 outline-none transition-colors"
                 />
               </div>
@@ -5241,34 +5517,34 @@ export const DashboardContent = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Department Division
+                    {t("dept_division", "Department Division")}
                   </label>
                   <select
                     value={dispatchDepartment}
                     onChange={(e) => setDispatchDepartment(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-purple-500 outline-none transition-colors cursor-pointer"
                   >
-                    <option value="Engineering">Engineering</option>
-                    <option value="Operations">Operations</option>
-                    <option value="Design">Design</option>
-                    <option value="Human Resources">Human Resources</option>
-                    <option value="Product">Product</option>
-                    <option value="Finance">Finance</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Executive">Executive</option>
+                    <option value="Engineering">{translateDept("Engineering")}</option>
+                    <option value="Operations">{translateDept("Operations")}</option>
+                    <option value="Design">{translateDept("Design")}</option>
+                    <option value="Human Resources">{translateDept("Human Resources")}</option>
+                    <option value="Product">{translateDept("Product")}</option>
+                    <option value="Finance">{translateDept("Finance")}</option>
+                    <option value="Marketing">{translateDept("Marketing")}</option>
+                    <option value="Executive">{translateDept("Executive")}</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Priority Level
+                    {t("priority_level", "Priority Level")}
                   </label>
                   <div className="grid grid-cols-4 gap-1.5">
                     {[
-                      { id: "urgent", label: "Urgent", color: "bg-red-500 text-white" },
-                      { id: "high", label: "High", color: "bg-amber-500 text-white" },
-                      { id: "medium", label: "Medium", color: "bg-indigo-600 text-white" },
-                      { id: "low", label: "Low", color: "bg-slate-500 text-white" },
+                      { id: "urgent", label: t("priority_urgent", "Urgent"), color: "bg-red-500 text-white" },
+                      { id: "high", label: t("priority_high", "High"), color: "bg-amber-500 text-white" },
+                      { id: "medium", label: t("priority_medium", "Medium"), color: "bg-indigo-600 text-white" },
+                      { id: "low", label: t("priority_low", "Low"), color: "bg-slate-500 text-white" },
                     ].map((p) => (
                       <button
                         key={p.id}
@@ -5290,7 +5566,7 @@ export const DashboardContent = () => {
               {/* Due Date */}
               <div>
                 <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Target Completion Date
+                  {t("target_completion_date", "Target Completion Date")}
                 </label>
                 <input
                   type="date"
@@ -5303,13 +5579,13 @@ export const DashboardContent = () => {
               {/* Description */}
               <div>
                 <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Deliverable Scope & Specifications
+                  {t("deliverable_scope_specs", "Deliverable Scope & Specifications")}
                 </label>
                 <textarea
                   rows={3}
                   value={dispatchDescription}
                   onChange={(e) => setDispatchDescription(e.target.value)}
-                  placeholder="Describe project objectives, key requirements, and deliverables expected from the manager..."
+                  placeholder={t("deliverable_scope_placeholder", "Describe project objectives, key requirements, and deliverables expected from the manager...")}
                   className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-medium text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-purple-500 outline-none transition-colors resize-none"
                 />
               </div>
@@ -5321,7 +5597,7 @@ export const DashboardContent = () => {
                   onClick={() => setIsDispatchModalOpen(false)}
                   className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[13px] font-bold transition-all cursor-pointer"
                 >
-                  Cancel
+                  {t("cancel", "Cancel")}
                 </button>
                 <button
                   type="submit"
@@ -5331,12 +5607,12 @@ export const DashboardContent = () => {
                   {isDispatching ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Dispatching Deliverable...</span>
+                      <span>{t("dispatching_deliverable", "Dispatching Deliverable...")}</span>
                     </>
                   ) : (
                     <>
                       <Zap className="w-4 h-4 text-amber-300" />
-                      <span>Dispatch Deliverable</span>
+                      <span>{t("dispatch_deliverable_btn", "Dispatch Deliverable")}</span>
                     </>
                   )}
                 </button>
@@ -5358,10 +5634,10 @@ export const DashboardContent = () => {
                 </div>
                 <div>
                   <h2 className="text-[18px] font-black text-slate-900 dark:text-white">
-                    Appoint / Promote Manager
+                    {t("appoint_modal_title", "Appoint / Promote Manager")}
                   </h2>
                   <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400">
-                    Super Admin Leadership & System Role Governance
+                    {t("appoint_modal_sub", "Super Admin Leadership & System Role Governance")}
                   </p>
                 </div>
               </div>
@@ -5378,7 +5654,7 @@ export const DashboardContent = () => {
               {/* Select Member */}
               <div>
                 <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Select Member to Appoint / Promote <span className="text-red-500">*</span>
+                  {t("select_member_appoint", "Select Member to Appoint / Promote")} <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={appointUserId}
@@ -5396,10 +5672,10 @@ export const DashboardContent = () => {
                   }}
                   className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-[#5B5FEF] outline-none transition-colors cursor-pointer"
                 >
-                  <option value="" disabled>-- Select a Workspace Member --</option>
+                  <option value="" disabled>{t("select_workspace_member", "-- Select a Workspace Member --")}</option>
                   {employees.map((emp: any) => (
                     <option key={emp.id || emp._id} value={emp.id || emp._id}>
-                      {emp.firstName} {emp.lastName} — {emp.department} ({emp.systemRole || emp.role})
+                      {emp.firstName} {emp.lastName} — {translateDept(emp.department)} ({emp.systemRole || emp.role})
                     </option>
                   ))}
                 </select>
@@ -5408,14 +5684,14 @@ export const DashboardContent = () => {
               {/* System Role Selection */}
               <div>
                 <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Designated System Privilege (RBAC) <span className="text-red-500">*</span>
+                  {t("designated_privilege", "Designated System Privilege (RBAC)")} <span className="text-red-500">*</span>
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: "manager", label: "Manager", desc: "Team Lead & Task Assignee" },
-                    { id: "employee", label: "Employee", desc: "Staff Contributor" },
-                    { id: "admin", label: "Admin", desc: "Operations Controller" },
-                    { id: "system_admin", label: "Sys Admin", desc: "Security & Auditing" },
+                    { id: "manager", label: t("role_manager_label", "Manager"), desc: t("role_manager_desc", "Team Lead & Task Assignee") },
+                    { id: "employee", label: t("role_employee_label", "Employee"), desc: t("role_employee_desc", "Staff Contributor") },
+                    { id: "admin", label: t("role_admin_label", "Admin"), desc: t("role_admin_desc", "Operations Controller") },
+                    { id: "system_admin", label: t("role_sysadmin_label", "Sys Admin"), desc: t("role_sysadmin_desc", "Security & Auditing") },
                   ].map((sRole) => (
                     <button
                       key={sRole.id}
@@ -5445,33 +5721,33 @@ export const DashboardContent = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Assigned Department <span className="text-red-500">*</span>
+                    {t("assigned_dept_label", "Assigned Department")} <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={appointDepartment}
                     onChange={(e) => setAppointDepartment(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-purple-500 outline-none transition-colors cursor-pointer"
                   >
-                    <option value="Engineering">Engineering</option>
-                    <option value="Operations">Operations</option>
-                    <option value="Design">Design</option>
-                    <option value="Human Resources">Human Resources</option>
-                    <option value="Product">Product</option>
-                    <option value="Finance">Finance</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Executive">Executive</option>
+                    <option value="Engineering">{translateDept("Engineering")}</option>
+                    <option value="Operations">{translateDept("Operations")}</option>
+                    <option value="Design">{translateDept("Design")}</option>
+                    <option value="Human Resources">{translateDept("Human Resources")}</option>
+                    <option value="Product">{translateDept("Product")}</option>
+                    <option value="Finance">{translateDept("Finance")}</option>
+                    <option value="Marketing">{translateDept("Marketing")}</option>
+                    <option value="Executive">{translateDept("Executive")}</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-[12px] font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Designation / Job Title <span className="text-red-500">*</span>
+                    {t("designation_job_title", "Designation / Job Title")} <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={appointRoleTitle}
                     onChange={(e) => setAppointRoleTitle(e.target.value)}
-                    placeholder="e.g. Lead Engineering Manager"
+                    placeholder={t("lead_engineering_manager_placeholder", "e.g. Lead Engineering Manager")}
                     className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-purple-500 outline-none transition-colors"
                   />
                 </div>
@@ -5484,7 +5760,7 @@ export const DashboardContent = () => {
                   onClick={() => setIsAppointModalOpen(false)}
                   className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[13px] font-bold transition-all cursor-pointer"
                 >
-                  Cancel
+                  {t("cancel", "Cancel")}
                 </button>
                 <button
                   type="submit"
@@ -5494,12 +5770,12 @@ export const DashboardContent = () => {
                   {isAppointing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Saving Leadership Credentials...</span>
+                      <span>{t("saving_credentials", "Saving Leadership Credentials...")}</span>
                     </>
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4" />
-                      <span>Confirm Appointment</span>
+                      <span>{t("confirm_appointment", "Confirm Appointment")}</span>
                     </>
                   )}
                 </button>

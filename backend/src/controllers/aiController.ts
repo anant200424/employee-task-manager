@@ -5,6 +5,7 @@ import Message from "../models/Message";
 import { AuthRequest } from "../middleware/auth";
 import { sendSuccess } from "../utils/ApiResponse";
 import { ApiError } from "../utils/ApiError";
+import { resolveSystemRole } from "../middleware/rbac";
 
 /**
  * Intelligent, Role-Based Workspace AI Copilot
@@ -38,7 +39,12 @@ export const chatWithAI = async (
           .lean()
       : null;
 
+    const userSysRole = resolveSystemRole(
+      currentUser?.role || req.user?.role,
+      (currentUser as any)?.systemRole || req.user?.systemRole
+    );
     const isAdmin =
+      ["super_admin", "system_admin", "admin"].includes(userSysRole) ||
       currentUser?.role?.toLowerCase() === "admin" ||
       req.user?.role?.toLowerCase() === "admin";
 
@@ -524,8 +530,15 @@ export const getAIContext = async (
 ): Promise<void> => {
   try {
     const userId = req.user?.id;
-    const user = userId ? await User.findById(userId).select("role department firstName lastName").lean() : null;
-    const isAdmin = user?.role?.toLowerCase() === "admin" || req.user?.role?.toLowerCase() === "admin";
+    const user = userId ? await User.findById(userId).select("role systemRole department firstName lastName").lean() : null;
+    const userSysRole = resolveSystemRole(
+      user?.role || req.user?.role,
+      (user as any)?.systemRole || req.user?.systemRole
+    );
+    const isAdmin =
+      ["super_admin", "system_admin", "admin"].includes(userSysRole) ||
+      user?.role?.toLowerCase() === "admin" ||
+      req.user?.role?.toLowerCase() === "admin";
 
     let taskCount = 0;
     let completedCount = 0;

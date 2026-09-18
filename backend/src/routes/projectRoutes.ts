@@ -12,8 +12,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", getProjects);
-router.post("/", restrictTo("super_admin", "admin"), createProject);
+router.post("/", restrictTo("super_admin", "system_admin", "admin"), createProject);
 router.get("/:id", getProjectById);
-router.patch("/:id", restrictTo("super_admin", "admin"), updateProject);
+router.patch("/:id", restrictTo("super_admin", "system_admin", "admin"), updateProject);
 
 export default router;

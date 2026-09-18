@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { api, extractApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { isAdminUser } from "@/lib/roleUtils";
 import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
 
@@ -54,14 +55,7 @@ export const DeleteAccountModal = ({
 
     // Validation
     if (isSelfDeletion) {
-      const userRoleLower = String(user?.role || "").toLowerCase();
-      const userSysRole = String(user?.systemRole || "").toLowerCase();
-      if (
-        userRoleLower.includes("admin") ||
-        userRoleLower.includes("super") ||
-        ["super_admin", "system_admin", "admin"].includes(userSysRole) ||
-        user?.email === "anantsingh20334411@gmail.com"
-      ) {
+      if (isAdminUser(user)) {
         setErrorMessage(
           "Enterprise Safeguard: Administrator and Super Administrator accounts cannot be self-deleted to maintain workspace governance.",
         );

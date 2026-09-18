@@ -46,6 +46,7 @@ import { EditEmployeeModal } from "@/features/employees/EditEmployeeModal";
 import { CreateEmployeeModal } from "@/features/employees/CreateEmployeeModal";
 import { SendEmailModal, RecipientUser } from "@/features/employees/SendEmailModal";
 import { EmployeesSkeleton } from "@/components/ui/Skeleton";
+import { isSuperAdminUser } from "@/lib/roleUtils";
 import { toast } from "react-hot-toast";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -103,11 +104,7 @@ export default function EmployeesPage(props: any) {
   const activeEmail = String(activeUser?.email || "").toLowerCase().trim();
 
   // Super Admin authority check:
-  // Evaluates to true for super_admin role, super administrator title, or active platform superadmin
-  const isSuperAdmin =
-    userSysRole === "super_admin" ||
-    rawUserRole.includes("super") ||
-    activeEmail === "superadmin@empsphere.io";
+  const isSuperAdmin = isSuperAdminUser(activeUser);
 
   const isAdminRoute = Boolean(props?.isAdminRoute) || pathname === "/admin";
   const isSuperAdminView = isSuperAdminRoute || pathname === "/superadmin";
@@ -121,9 +118,9 @@ export default function EmployeesPage(props: any) {
     if (!activeUser) return;
     if (isSuperAdmin && (pathname === "/employees" || pathname === "/admin")) {
       router.replace("/superadmin");
-    } else if (!isSuperAdmin && (pathname === "/employees" || pathname === "/superadmin")) {
+    } else if (!isSuperAdmin && (pathname === "/employees" || pathname === "/superadmin" || pathname === "/admin")) {
       if (userSysRole === "admin" || isSystemAdmin || rawUserRole === "admin") {
-        router.replace("/admin");
+        if (pathname !== "/admin") router.replace("/admin");
       } else {
         router.replace("/dashboard");
       }
@@ -146,15 +143,7 @@ export default function EmployeesPage(props: any) {
 
   // Root Super Admin account check: This account is the platform owner and should not be displayed in the employee roster
   const isSuperAdminAccount = (targetUser: UserItem | null | undefined) => {
-    if (!targetUser) return false;
-    const sysRole = String(targetUser.systemRole || "").toLowerCase().trim();
-    const role = String(targetUser.role || "").toLowerCase().trim();
-    const email = String(targetUser.email || "").toLowerCase().trim();
-    return (
-      sysRole === "super_admin" ||
-      role.includes("super") ||
-      email === "superadmin@empsphere.io"
-    );
+    return isSuperAdminUser(targetUser as any);
   };
 
   // Administrator accounts (e.g. system_admin, admin)
@@ -348,10 +337,7 @@ export default function EmployeesPage(props: any) {
             const sysRole = String(u.systemRole || "").toLowerCase().trim();
             const emailStr = String(u.email || "").toLowerCase().trim();
             // Completely exclude root Super Administrator account from this portal roster
-            const isSuper =
-              sysRole === "super_admin" ||
-              roleStr.includes("super") ||
-              emailStr === "superadmin@empsphere.io";
+            const isSuper = isSuperAdminUser(u);
             return !isSuper;
           })
           .map((u: any) => {

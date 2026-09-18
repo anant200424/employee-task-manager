@@ -3,19 +3,14 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { isSuperAdminUser } from "@/lib/roleUtils";
 import EmployeesPage from "../employees/page";
 
 export default function SuperAdminPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
-  const rawRole = String(user?.role || "").toLowerCase().trim();
-  const sysRole = String(user?.systemRole || "").toLowerCase().trim();
-  const email = String(user?.email || "").toLowerCase().trim();
-  const isSuperAdmin =
-    sysRole === "super_admin" ||
-    rawRole.includes("super") ||
-    email === "superadmin@empsphere.io";
+  const isSuperAdmin = isSuperAdminUser(user);
 
   useEffect(() => {
     if (!isLoading && user && !isSuperAdmin) {

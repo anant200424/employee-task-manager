@@ -7,13 +7,14 @@ import { AuthRequest } from "../middleware/auth";
 import { sendSuccess } from "../utils/ApiResponse";
 import { ApiError } from "../utils/ApiError";
 import { recordAuditLog } from "../services/auditService";
+import { escapeRegex } from "../utils/sanitize";
 
 /**
  * Helper to generate a unique project code (e.g., PRJ-ENG-01)
  */
 const generateProjectCode = async (department: string): Promise<string> => {
   const deptCode = department.toUpperCase().slice(0, 3).replace(/[^A-Z]/g, "") || "PRJ";
-  const count = await Project.countDocuments({ department: { $regex: new RegExp(deptCode, "i") } });
+  const count = await Project.countDocuments({ department: { $regex: new RegExp(escapeRegex(deptCode), "i") } });
   const num = String(count + 1).padStart(2, "0");
   return `PRJ-${deptCode}-${num}`;
 };
@@ -141,7 +142,7 @@ export const getProjects = async (
     const filter: Record<string, any> = {};
 
     if (department && department !== "all") {
-      filter.department = { $regex: new RegExp(String(department).trim(), "i") };
+      filter.department = { $regex: new RegExp(escapeRegex(String(department)), "i") };
     }
     if (status && status !== "all") {
       filter.status = status;
@@ -150,10 +151,11 @@ export const getProjects = async (
       filter.priority = priority;
     }
     if (search && typeof search === "string" && search.trim() !== "") {
+      const sanitized = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search.trim(), $options: "i" } },
-        { code: { $regex: search.trim(), $options: "i" } },
-        { department: { $regex: search.trim(), $options: "i" } },
+        { name: { $regex: sanitized, $options: "i" } },
+        { code: { $regex: sanitized, $options: "i" } },
+        { department: { $regex: sanitized, $options: "i" } },
       ];
     }
 
@@ -247,8 +249,9 @@ export const createProject = async (
     const code = await generateProjectCode(department.trim());
 
     // Gather existing team members from that department
+    const sanitizedDeptPrefix = escapeRegex(department.slice(0, 4));
     const teamMembers = await User.find({
-      department: { $regex: new RegExp(department.slice(0, 4), "i") },
+      department: { $regex: new RegExp(sanitizedDeptPrefix, "i") },
     }).select("_id");
 
     const newProject = await Project.create({

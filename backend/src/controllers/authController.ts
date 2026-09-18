@@ -18,6 +18,7 @@ import {
   clearRefreshTokenCookie,
 } from "../utils/generateToken";
 import { uploadImageToCloudinary } from "../config/cloudinary";
+import { decryptPassword } from "../utils/crypto";
 
 import {
   sendEmail,
@@ -32,7 +33,6 @@ import { recordAuditLog } from "../services/auditService";
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_TIME_MS = 15 * 60 * 1000; // 15 minutes
-
 
 // ============================================================
 // REGISTER
@@ -61,19 +61,17 @@ export const register = async (
     } = req.body;
 
     const existing = await User.findOne({ email });
-
     if (existing) {
       throw new ApiError(
         409,
         "An account with this email already exists.",
-        {
-          email: "An account with this email already exists.",
-        },
+        { email: "An account with this email already exists." },
       );
     }
 
     const dialCode = `+${getCountryCallingCode(countryCode)}`;
 
+    // Prevent privilege escalation via role field
     let cleanRole = role ? String(role).trim() : "Software Engineer";
     if (/admin|super|system_admin|manager/i.test(cleanRole)) {
       cleanRole = "Software Engineer";
@@ -81,22 +79,16 @@ export const register = async (
 
     let cleanAvatarUrl = "";
     if (avatarUrl && typeof avatarUrl === "string") {
-      if (avatarUrl.startsWith("data:image/")) {
-        const cloudRes = await uploadImageToCloudinary(avatarUrl, "empsphere/avatars", "reg-avatar");
-        cleanAvatarUrl = cloudRes.url;
-      } else {
-        cleanAvatarUrl = avatarUrl.trim();
-      }
+      cleanAvatarUrl = avatarUrl.startsWith("data:image/")
+        ? (await uploadImageToCloudinary(avatarUrl, "empsphere/avatars", "reg-avatar")).url
+        : avatarUrl.trim();
     }
 
     let cleanCoverUrl = "";
     if (coverUrl && typeof coverUrl === "string") {
-      if (coverUrl.startsWith("data:image/")) {
-        const cloudRes = await uploadImageToCloudinary(coverUrl, "empsphere/covers", "reg-cover");
-        cleanCoverUrl = cloudRes.url;
-      } else {
-        cleanCoverUrl = coverUrl.trim();
-      }
+      cleanCoverUrl = coverUrl.startsWith("data:image/")
+        ? (await uploadImageToCloudinary(coverUrl, "empsphere/covers", "reg-cover")).url
+        : coverUrl.trim();
     }
 
     const user = await User.create({
@@ -109,41 +101,23 @@ export const register = async (
       department: department || "Engineering",
       role: cleanRole,
       systemRole: "employee",
-      employeeId:
-        employeeId || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
+      employeeId: employeeId || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       dateOfBirth,
       password,
       avatarUrl: cleanAvatarUrl,
       coverUrl: cleanCoverUrl,
     });
 
-    const accessToken = generateAccessToken({
-      userId: user.id,
-      role: user.role,
-    });
-
-    const refreshToken = generateRefreshToken({
-      userId: user.id,
-      role: user.role,
-    });
+    const accessToken = generateAccessToken({ userId: user.id, role: user.role });
+    const refreshToken = generateRefreshToken({ userId: user.id, role: user.role });
 
     user.refreshTokens = [refreshToken];
-
-    await user.save({
-      validateBeforeSave: false,
-    });
+    await user.save({ validateBeforeSave: false });
 
     setAccessTokenCookie(res, accessToken);
     setRefreshTokenCookie(res, refreshToken);
 
-    sendSuccess(
-      res,
-      201,
-      "Account created successfully. Welcome to EmpSphere!",
-      {
-        user,
-      },
-    );
+    sendSuccess(res, 201, "Account created successfully. Welcome to EmpSphere!", { user });
   } catch (error) {
     next(error);
   }
@@ -161,12 +135,34 @@ export const login = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password: rawPassword, rememberMe } = req.body;
+    const shouldRemember = rememberMe === true; // true = 30d session, false = 7d
 
-    const user = await User.findOne({ email }).select(
-      "+password +loginAttempts +lockUntil",
-    );
+    // Input validation (before any DB query)
+    if (!email || typeof email !== "string" || !email.trim()) {
+      throw new ApiError(400, "Email address is required.");
+    }
+    if (!rawPassword || typeof rawPassword !== "string") {
+      throw new ApiError(400, "Password is required.");
+    }
 
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      throw new ApiError(400, "Please provide a valid email address.");
+    }
+
+    const cleanPassword = decryptPassword(rawPassword);
+    if (!cleanPassword || cleanPassword.trim().length === 0) {
+      throw new ApiError(400, "Invalid password format or decryption failed.");
+    }
+
+    // Database query (only after input is clean)
+    const user = await User.findOne({
+      email: cleanEmail,
+      isDeleted: { $ne: true },
+    }).select("+password +loginAttempts +lockUntil +refreshTokens");
+
+    // Account status checks (before bcrypt — saves CPU on blocked/locked accounts)
     if (!user) {
       throw new ApiError(401, "Invalid email or password.");
     }
@@ -174,7 +170,7 @@ export const login = async (
     if (user.isBlocked) {
       throw new ApiError(
         403,
-        "Your account has been deactivated/blocked by the administrator. Please contact HR or IT support."
+        "Your account has been deactivated/blocked by the administrator. Please contact HR or IT support.",
       );
     }
 
@@ -182,64 +178,46 @@ export const login = async (
       const minutesLeft = Math.ceil(
         ((user.lockUntil as Date).getTime() - Date.now()) / 60000,
       );
-
       throw new ApiError(
         423,
         `Account temporarily locked due to multiple failed attempts. Try again in ${minutesLeft} minute(s).`,
       );
     }
 
-    const isMatch = await user.comparePassword(password);
+    // Password verification & brute-force protection
+    const isMatch = await user.comparePassword(cleanPassword);
 
     if (!isMatch) {
-      user.loginAttempts += 1;
-
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
       if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
         user.lockUntil = new Date(Date.now() + LOCK_TIME_MS);
       }
-
-      await user.save({
-        validateBeforeSave: false,
-      });
+      await user.save({ validateBeforeSave: false });
 
       await recordAuditLog({
         req,
         action: "LOGIN_FAILED",
         resourceType: "auth",
-        actor: { email },
-        details: { reason: "Invalid password", attempts: user.loginAttempts },
+        actor: { email: cleanEmail },
+        details: { reason: "Invalid password", attempts: user.loginAttempts, maxAttempts: MAX_LOGIN_ATTEMPTS },
       });
 
       throw new ApiError(401, "Invalid email or password.");
     }
 
-    // Successful login — reset brute force counters
+    // Successful login — reset counters, generate session tokens
     user.loginAttempts = 0;
     user.lockUntil = undefined;
 
-    const accessToken = generateAccessToken({
-      userId: user.id,
-      role: user.role,
-    });
+    const accessToken = generateAccessToken({ userId: user.id, role: user.role });
+    const refreshToken = generateRefreshToken({ userId: user.id, role: user.role }, shouldRemember);
 
-    const refreshToken = generateRefreshToken({
-      userId: user.id,
-      role: user.role,
-    });
-
-    user.refreshTokens = [
-      ...(user.refreshTokens || []).slice(-4),
-      refreshToken,
-    ];
-
-    await user.save({
-      validateBeforeSave: false,
-    });
+    // Keep max 5 concurrent device sessions
+    user.refreshTokens = [...(user.refreshTokens || []).slice(-4), refreshToken];
+    await user.save({ validateBeforeSave: false });
 
     setAccessTokenCookie(res, accessToken);
-    setRefreshTokenCookie(res, refreshToken);
-
-    const safeUser = await User.findById(user.id);
+    setRefreshTokenCookie(res, refreshToken, shouldRemember);
 
     await recordAuditLog({
       req,
@@ -254,7 +232,7 @@ export const login = async (
     });
 
     sendSuccess(res, 200, "Logged in successfully.", {
-      user: safeUser,
+      user: user.toJSON(),
     });
   } catch (error) {
     next(error);
@@ -684,8 +662,23 @@ export const terminateOtherSessions = async (
     const user = await User.findById(req.user?.id).select("+refreshTokens");
     if (!user) throw new ApiError(404, "User not found.");
 
-    user.refreshTokens = [];
-    await user.save();
+    // Generate fresh session tokens for the current active device
+    const newAccessToken = generateAccessToken({
+      userId: user.id,
+      role: user.role,
+    });
+    const newRefreshToken = generateRefreshToken({
+      userId: user.id,
+      role: user.role,
+    });
+
+    // Invalidate old access tokens on other devices by setting passwordChangedAt
+    user.passwordChangedAt = new Date();
+    user.refreshTokens = [newRefreshToken];
+    await user.save({ validateBeforeSave: false });
+
+    setAccessTokenCookie(res, newAccessToken);
+    setRefreshTokenCookie(res, newRefreshToken);
 
     sendSuccess(res, 200, "All other device sessions have been terminated.");
   } catch (error) {
@@ -918,38 +911,6 @@ export const verifyOtp = async (
     });
 
     if (!pending) {
-      const existingUser = await User.findOne({ email }).select("+refreshTokens");
-      if (existingUser) {
-        const accessToken = generateAccessToken({
-          userId: existingUser.id,
-          role: existingUser.role,
-        });
-
-        const refreshToken = generateRefreshToken({
-          userId: existingUser.id,
-          role: existingUser.role,
-        });
-
-        existingUser.refreshTokens = [
-          ...(existingUser.refreshTokens || []).slice(-4),
-          refreshToken,
-        ];
-
-        await existingUser.save({ validateBeforeSave: false });
-        setAccessTokenCookie(res, accessToken);
-        setRefreshTokenCookie(res, refreshToken);
-
-        sendSuccess(
-          res,
-          200,
-          "Account verified and created successfully!",
-          {
-            user: existingUser,
-          },
-        );
-        return;
-      }
-
       throw new ApiError(
         400,
         "Registration session expired or not found. Please register again.",

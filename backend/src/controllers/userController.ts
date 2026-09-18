@@ -1022,8 +1022,7 @@ export const blockUser = async (
     // Root account protection: Super Admin cannot be suspended
     const isTargetSuperAdmin =
       targetRole === "super_admin" ||
-      (userToBlock.role || "").toLowerCase().includes("super") ||
-      userToBlock.email === "superadmin@empsphere.io";
+      (userToBlock.role || "").toLowerCase().includes("super");
 
     if (isTargetSuperAdmin) {
       throw new ApiError(403, "Protected Account: Super Administrator accounts cannot be suspended.");
@@ -1096,8 +1095,7 @@ export const unblockUser = async (
 
     const isTargetSuperAdmin =
       targetRole === "super_admin" ||
-      (userToUnblock.role || "").toLowerCase().includes("super") ||
-      userToUnblock.email === "superadmin@empsphere.io";
+      (userToUnblock.role || "").toLowerCase().includes("super");
 
     if (isTargetSuperAdmin) {
       throw new ApiError(403, "Protected Account: Super Administrator accounts cannot be modified.");
@@ -1212,8 +1210,7 @@ export const updateUserByAdmin = async (
 
     const isTargetSuperAdmin =
       targetRole === "super_admin" ||
-      (targetUser.role || "").toLowerCase().includes("super") ||
-      targetUser.email === "superadmin@empsphere.io";
+      (targetUser.role || "").toLowerCase().includes("super");
 
     // NO ONE except Super Admin can edit Super Admin accounts
     if (isTargetSuperAdmin && !isCallerSuperAdmin) {
@@ -1479,9 +1476,7 @@ export const deleteUserByAdmin = async (
     if (!targetUser) throw new ApiError(404, "User not found.");
 
     const callerRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
-    const isCallerSuperAdmin =
-      callerRole === "super_admin" ||
-      req.user?.email === "superadmin@empsphere.io";
+    const isCallerSuperAdmin = callerRole === "super_admin";
     const isCallerSystemAdmin = callerRole === "system_admin";
     const targetRole = resolveSystemRole(targetUser.role, targetUser.systemRole);
 
@@ -1492,7 +1487,6 @@ export const deleteUserByAdmin = async (
 
     // Root account protection: Super Admin cannot be deleted
     const isTargetSuperAdmin =
-      targetUser.email === "superadmin@empsphere.io" ||
       targetRole === "super_admin" ||
       (targetUser.role || "").toLowerCase().includes("super");
 

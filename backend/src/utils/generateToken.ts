@@ -13,10 +13,17 @@ export const generateAccessToken = (payload: TokenPayload): string => {
   });
 };
 
-export const generateRefreshToken = (payload: TokenPayload): string => {
+// rememberMe = true  → 30 din ka token (persistent session)
+// rememberMe = false → 7 din ka token (default, standard session)
+export const generateRefreshToken = (
+  payload: TokenPayload,
+  rememberMe = false,
+): string => {
+  const expiry = rememberMe
+    ? (process.env.JWT_REFRESH_REMEMBER_EXPIRES_IN || "30d")
+    : (process.env.JWT_REFRESH_EXPIRES_IN || "7d");
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET as string, {
-    expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ||
-      "7d") as SignOptions["expiresIn"],
+    expiresIn: expiry as SignOptions["expiresIn"],
   });
 };
 
@@ -45,14 +52,23 @@ export const clearAccessTokenCookie = (res: Response): void => {
 
 // Sets the refresh token as a secure, httpOnly cookie so it can never be
 // read or exfiltrated via client-side JavaScript (mitigates XSS token theft).
-export const setRefreshTokenCookie = (res: Response, token: string): void => {
+// rememberMe = true  → Persistent cookie: 30 din (browser band hone ke baad bhi rahe)
+// rememberMe = false → Standard cookie: 7 din
+export const setRefreshTokenCookie = (
+  res: Response,
+  token: string,
+  rememberMe = false,
+): void => {
   const isProd = process.env.NODE_ENV === "production";
+  const maxAge = rememberMe
+    ? 30 * 24 * 60 * 60 * 1000 // 30 din (Remember Me ON)
+    : 7 * 24 * 60 * 60 * 1000; // 7 din (Remember Me OFF)
   res.cookie("refreshToken", token, {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "strict" : "lax",
     path: "/api/auth",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge,
   });
 };
 

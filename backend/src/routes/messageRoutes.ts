@@ -40,6 +40,9 @@ router.post("/", async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!content || String(content).trim().length === 0) {
       throw new ApiError(400, "Message content is required.");
     }
+    if (String(content).trim().length > 5000) {
+      throw new ApiError(400, "Message content cannot exceed 5,000 characters.");
+    }
 
     const user = await User.findById(userId);
     if (!user) {

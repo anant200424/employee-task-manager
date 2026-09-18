@@ -13,26 +13,12 @@ import { Topbar } from "@/components/dashboard/Topbar";
 import { auditApi } from "@/lib/api";
 import { AuditLogItem, AuditLogPagination } from "@/types/auth";
 import { useAuth } from "@/context/AuthContext";
+import { isAdminUser } from "@/lib/roleUtils";
 import { toast } from "react-hot-toast";
 
 export const AuditLogViewer = () => {
   const { user, isLoading: authLoading } = useAuth();
-  const rawRole = String(user?.role || "").toLowerCase();
-  const sysRole =
-    user?.systemRole ||
-    (rawRole === "admin"
-      ? "admin"
-      : rawRole.includes("super")
-      ? "super_admin"
-      : rawRole.includes("system")
-      ? "system_admin"
-      : rawRole.includes("manager")
-      ? "manager"
-      : "employee");
-  const isAuthorizedAdmin =
-    ["super_admin", "system_admin", "admin"].includes(sysRole) ||
-    rawRole === "admin" ||
-    user?.email === "anantsingh20334411@gmail.com";
+  const isAuthorizedAdmin = isAdminUser(user);
 
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,6 +163,7 @@ export const AuditLogViewer = () => {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
+              aria-label="Search audit ledger by action, actor, or resource ID"
               placeholder="Search by action, actor, or resource ID..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -186,6 +173,7 @@ export const AuditLogViewer = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             <select
+              aria-label="Filter audit logs by action"
               value={actionFilter}
               onChange={(e) => setActionFilter(e.target.value)}
               className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 focus:outline-none"
@@ -199,6 +187,7 @@ export const AuditLogViewer = () => {
             </select>
 
             <select
+              aria-label="Filter audit logs by resource type"
               value={resourceFilter}
               onChange={(e) => setResourceFilter(e.target.value)}
               className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 focus:outline-none"

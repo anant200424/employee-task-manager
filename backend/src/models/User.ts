@@ -375,5 +375,11 @@ userSchema.set("toJSON", {
   },
 });
 
+// High-performance compound indexes for directory listing, role filtering, and status checks
+userSchema.index({ isDeleted: 1, createdAt: -1 });
+userSchema.index({ isDeleted: 1, department: 1 });
+userSchema.index({ isDeleted: 1, systemRole: 1 });
+userSchema.index({ isDeleted: 1, isBlocked: 1 });
+
 const User: Model<IUser> = mongoose.model<IUser>("User", userSchema);
 export default User;

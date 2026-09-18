@@ -57,6 +57,8 @@ export const getTasks = async (
       query.isDeleted = { $ne: true };
     }
 
+    let managerScope: Record<string, unknown>[] | null = null;
+
     // Role-based resource scoping
     if (systemRole === "employee") {
       // Employees ONLY see tasks explicitly assigned to them
@@ -67,12 +69,12 @@ export const getTasks = async (
       // Managers see tasks in their department, or created by them, or assigned to them
       const userDept = req.user?.department || "Engineering";
       const uId = userId ? new mongoose.Types.ObjectId(userId) : null;
-      query.$or = [
+      managerScope = [
         { department: userDept },
         ...(uId ? [{ createdBy: uId }, { assignedTo: uId }] : []),
       ];
     } else {
-      // Super Admin and Admin: full organization visibility with filter support
+      // Super Admin, System Admin, and Admin: full organization visibility with filter support
       if (assignedTo && assignedTo !== "all" && typeof assignedTo === "string") {
         if (mongoose.Types.ObjectId.isValid(assignedTo)) {
           query.assignedTo = new mongoose.Types.ObjectId(assignedTo);
@@ -91,14 +93,27 @@ export const getTasks = async (
       query.priority = priority;
     }
 
+    let searchConditions: Record<string, unknown>[] | null = null;
     if (search && typeof search === "string" && search.trim() !== "") {
-      const searchRegex = { $regex: search.trim(), $options: "i" };
-      query.$or = [
+      const sanitized = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = { $regex: sanitized, $options: "i" };
+      searchConditions = [
         { title: searchRegex },
         { description: searchRegex },
         { taskCode: searchRegex },
         { department: searchRegex },
       ];
+    }
+
+    if (managerScope && searchConditions) {
+      query.$and = [
+        { $or: managerScope },
+        { $or: searchConditions },
+      ];
+    } else if (managerScope) {
+      query.$or = managerScope;
+    } else if (searchConditions) {
+      query.$or = searchConditions;
     }
 
     // Date filtering
@@ -255,7 +270,7 @@ export const createTask = async (
     } = req.body;
 
     const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
-    if (!["super_admin", "admin", "manager"].includes(systemRole)) {
+    if (!["super_admin", "system_admin", "admin", "manager"].includes(systemRole)) {
       throw new ApiError(403, "Only administrators and managers can create enterprise tasks.");
     }
 
@@ -508,7 +523,7 @@ export const updateTask = async (
 
     const updates: Record<string, unknown> = {};
     const systemRole = resolveSystemRole(req.user?.role, req.user?.systemRole);
-    const isAdmin = systemRole === "admin" || systemRole === "super_admin";
+    const isAdmin = systemRole === "admin" || systemRole === "super_admin" || systemRole === "system_admin";
     const isManager = systemRole === "manager";
     const isAssignee = (existingTask.assignedTo || []).some(
       (aId) => aId.toString() === req.user?.id

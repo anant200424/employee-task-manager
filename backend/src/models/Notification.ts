@@ -63,6 +63,10 @@ const notificationSchema = new Schema<INotification>(
   { timestamps: true },
 );
 
+// Compound indexes for user notification tray and unread counter
+notificationSchema.index({ recipient: 1, createdAt: -1 });
+notificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
+
 const Notification: Model<INotification> =
   mongoose.models.Notification ||
   mongoose.model<INotification>("Notification", notificationSchema);

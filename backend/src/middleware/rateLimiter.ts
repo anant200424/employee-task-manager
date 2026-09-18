@@ -21,3 +21,14 @@ export const forgotPasswordLimiter = rateLimit({
     message: "Too many password reset requests. Please try again in an hour.",
   },
 });
+
+export const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests to the API. Please slow down.",
+  },
+});

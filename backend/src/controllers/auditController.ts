@@ -4,6 +4,7 @@ import { AuthRequest } from "../middleware/auth";
 import { resolveSystemRole } from "../middleware/rbac";
 import { sendSuccess } from "../utils/ApiResponse";
 import { ApiError } from "../utils/ApiError";
+import { escapeRegex } from "../utils/sanitize";
 
 /**
  * Retrieves paginated audit logs with search and filtering.
@@ -53,11 +54,12 @@ export const getAuditLogs = async (
     }
 
     if (actorEmail && typeof actorEmail === "string") {
-      query.actorEmail = { $regex: actorEmail.trim(), $options: "i" };
+      query.actorEmail = { $regex: escapeRegex(actorEmail), $options: "i" };
     }
 
     if (search && typeof search === "string" && search.trim() !== "") {
-      const searchRegex = { $regex: search.trim(), $options: "i" };
+      const sanitized = escapeRegex(search);
+      const searchRegex = { $regex: sanitized, $options: "i" };
       query.$or = [
         { action: searchRegex },
         { actorName: searchRegex },

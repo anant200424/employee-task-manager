@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { isSuperAdminUser, isAdminUser, isManagerUser } from "@/lib/roleUtils";
 
 const ENTERPRISE_ROLES = [
   {
@@ -52,23 +53,9 @@ const ENTERPRISE_ROLES = [
 export const EmploymentInfoTab = () => {
   const { user } = useAuth();
 
-  const roleLower = (user?.role || "").toLowerCase();
-  const sysRoleLower = (user?.systemRole || "").toLowerCase();
-
-  const isSuperAdmin =
-    sysRoleLower === "super_admin" ||
-    roleLower.includes("super") ||
-    user?.email === "anantsingh20334411@gmail.com";
-
-  const isAdmin =
-    isSuperAdmin ||
-    roleLower.includes("admin") ||
-    ["admin", "system_admin"].includes(sysRoleLower);
-
-  const isManager =
-    !isAdmin &&
-    sysRoleLower !== "employee" &&
-    (sysRoleLower === "manager" || roleLower.includes("manager") || roleLower.includes("lead"));
+  const isSuperAdmin = isSuperAdminUser(user);
+  const isAdmin = isAdminUser(user);
+  const isManager = !isAdmin && isManagerUser(user);
 
   const roleDisplayInfo = useMemo(() => {
     if (isSuperAdmin) return ENTERPRISE_ROLES[0];

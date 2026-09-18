@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { BrandMark } from "@/components/auth/BrandMark";
 import { useAuth } from "@/context/AuthContext";
+import { isSuperAdminUser, isAdminUser } from "@/lib/roleUtils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSidebar } from "@/context/SidebarContext";
 
@@ -137,27 +138,8 @@ export const Sidebar = () => {
     ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase()
     : "EM";
 
-  const rawRole = (user?.role || "").toLowerCase();
-  const sysRole =
-    user?.systemRole ||
-    (rawRole === "admin"
-      ? "admin"
-      : rawRole.includes("super")
-      ? "super_admin"
-      : rawRole.includes("system")
-      ? "system_admin"
-      : rawRole.includes("manager")
-      ? "manager"
-      : "employee");
-  const isSuperAdminUser =
-    sysRole === "super_admin" ||
-    rawRole.includes("super") ||
-    user?.email === "superadmin@empsphere.io";
-
-  const isAdmin =
-    isSuperAdminUser ||
-    ["admin", "system_admin"].includes(sysRole) ||
-    rawRole === "admin";
+  const isSuperAdmin = isSuperAdminUser(user);
+  const isAdmin = isAdminUser(user);
 
   const filteredGroups = navGroups.map((group) => ({
     ...group,
@@ -169,7 +151,7 @@ export const Sidebar = () => {
       })
       .map((item) => {
         if (item.href === "/employees") {
-          if (isSuperAdminUser) {
+          if (isSuperAdmin) {
             return {
               ...item,
               label: "Super Admin Portal",
@@ -225,7 +207,7 @@ export const Sidebar = () => {
               </Link>
 
               {/* Collapsed Role Shield Icon */}
-              {isSuperAdminUser ? (
+              {isSuperAdmin ? (
                 <div
                   title="Super Admin Portal (Root Governance)"
                   className="w-9 h-9 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-700 text-white flex items-center justify-center shadow-xs cursor-default"
@@ -280,7 +262,7 @@ export const Sidebar = () => {
 
               {/* Desktop-Only Role Badge */}
               <div className="hidden lg:flex items-center">
-                {isSuperAdminUser ? (
+                {isSuperAdmin ? (
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60 rounded-lg shadow-2xs cursor-default">
                     <Shield className="w-3 h-3 text-amber-400" />
                     <span className="text-[10px] font-black tracking-wider uppercase">

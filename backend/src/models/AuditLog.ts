@@ -36,6 +36,11 @@ const auditLogSchema = new Schema<IAuditLog>(
   { timestamps: false }
 );
 
+// Compound indexes for audit log chronological filtering and querying
+auditLogSchema.index({ timestamp: -1, resourceType: 1 });
+auditLogSchema.index({ timestamp: -1, action: 1 });
+auditLogSchema.index({ actorEmail: 1, timestamp: -1 });
+
 const AuditLog: Model<IAuditLog> =
   mongoose.models.AuditLog || mongoose.model<IAuditLog>("AuditLog", auditLogSchema);
 

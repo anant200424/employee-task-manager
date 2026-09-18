@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { isSuperAdminUser, isSystemAdminUser, isAdminUser } from "@/lib/roleUtils";
 import { toast } from "react-hot-toast";
 import {
   validateName,
@@ -63,22 +64,9 @@ export const EditEmployeeModal = ({
   onUserUpdated,
 }: EditEmployeeModalProps) => {
   const { user: currentUser } = useAuth();
-  const isCallerSuperAdmin =
-    currentUser?.systemRole === "super_admin" ||
-    String(currentUser?.role || "").toLowerCase().includes("super") ||
-    currentUser?.email === "superadmin@empsphere.io";
-
-  const curRoleLower = String(currentUser?.role || "").toLowerCase();
-  const curSysRole = String(currentUser?.systemRole || "").toLowerCase();
-  const isCallerSystemAdmin =
-    curSysRole === "system_admin" ||
-    curRoleLower.includes("system");
-
-  const isCallerAdmin =
-    isCallerSuperAdmin ||
-    isCallerSystemAdmin ||
-    curSysRole === "admin" ||
-    curRoleLower === "admin";
+  const isCallerSuperAdmin = isSuperAdminUser(currentUser);
+  const isCallerSystemAdmin = isSystemAdminUser(currentUser);
+  const isCallerAdmin = isAdminUser(currentUser);
 
   const isSelf = Boolean(
     user &&

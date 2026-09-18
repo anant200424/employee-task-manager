@@ -6,8 +6,9 @@ import Link from "next/link";
 import { Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from "lucide-react";
 
 import { LoginFormData, FormErrors } from "@/types/auth";
-import { validateLoginForm } from "@/lib/validation";
+import { validateLoginForm, validateEmail } from "@/lib/validation";
 import { api, extractApiError, setAccessToken } from "@/lib/api";
+import { encryptPayload } from "@/lib/crypto";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import toast from "react-hot-toast";
@@ -23,6 +24,7 @@ export const LoginForm = () => {
     rememberMe: false,
   });
   const [errors, setErrors] = useState<FormErrors<LoginFormData>>({});
+  const [touched, setTouched] = useState<{ email?: boolean; password?: boolean }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -37,9 +39,10 @@ export const LoginForm = () => {
         );
       }
 
-      // Restore remembered email on client
+      // Restore remember me preference from localStorage
       const rememberedEmail = localStorage.getItem("empsphere_remembered_email");
-      if (rememberedEmail) {
+      const rememberMePref = localStorage.getItem("empsphere_remember_me") === "true";
+      if (rememberMePref && rememberedEmail) {
         setData((prev) => ({
           ...prev,
           email: rememberedEmail,
@@ -49,33 +52,86 @@ export const LoginForm = () => {
     }
   }, [router]);
 
-  const isFormFilled = Boolean(data.email.trim() !== "" && data.password.trim() !== "");
-  const canSubmit = isFormFilled && !isSubmitting;
+  const handleBlur = (field: "email" | "password") => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    if (field === "email") {
+      const emailErr = validateEmail(data.email);
+      setErrors((prev) => ({ ...prev, email: emailErr }));
+    } else if (field === "password") {
+      let passErr: string | undefined;
+      if (!data.password) {
+        passErr = "Please enter your password.";
+      } else if (data.password.length < 8) {
+        passErr = "Password must be at least 8 characters.";
+      }
+      setErrors((prev) => ({ ...prev, password: passErr }));
+    }
+  };
+
+  const handleEmailChange = (val: string) => {
+    setData((p) => ({ ...p, email: val }));
+    if (formError) setFormError(null);
+    if (touched.email || errors.email) {
+      const err = validateEmail(val);
+      setErrors((p) => ({ ...p, email: err }));
+    }
+  };
+
+  const handlePasswordChange = (val: string) => {
+    setData((p) => ({ ...p, password: val }));
+    if (formError) setFormError(null);
+    if (touched.password || errors.password) {
+      let passErr: string | undefined;
+      if (!val) {
+        passErr = "Please enter your password.";
+      } else if (val.length < 8) {
+        passErr = "Password must be at least 8 characters.";
+      }
+      setErrors((p) => ({ ...p, password: passErr }));
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (isSubmitting) return;
     setFormError(null);
+
+    // Mark both fields as touched on submit
+    setTouched({ email: true, password: true });
 
     const validationErrors = validateLoginForm(data);
     setErrors(validationErrors);
-    if (Object.keys(validationErrors).length > 0) return;
+    if (Object.keys(validationErrors).length > 0) {
+      if (validationErrors.email) {
+        document.getElementById("login-email")?.focus();
+      } else if (validationErrors.password) {
+        document.getElementById("login-password")?.focus();
+      }
+      return;
+    }
 
-    // Persist or clear remembered email on client only
+    // Persist rememberMe preference to localStorage (credentials/tokens remain secure)
     if (typeof window !== "undefined") {
       if (data.rememberMe && data.email.trim()) {
         localStorage.setItem("empsphere_remembered_email", data.email.trim());
+        localStorage.setItem("empsphere_remember_me", "true");
       } else {
         localStorage.removeItem("empsphere_remembered_email");
+        localStorage.removeItem("empsphere_remember_me");
       }
     }
 
     setIsSubmitting(true);
     try {
-      // Send ONLY credentials to backend - rememberMe remains strictly on frontend
-      const res = await api.post("/auth/login", {
+      // Encrypt full payload under single 'data' field so no plaintext fields are exposed in DevTools
+      const encryptedData = await encryptPayload({
         email: data.email.trim(),
         password: data.password,
+        rememberMe: data.rememberMe,
+      });
+
+      const res = await api.post("/auth/login", {
+        data: encryptedData,
       });
       const { user, accessToken } = res.data?.data || {};
       if (accessToken) {
@@ -140,20 +196,17 @@ export const LoginForm = () => {
               id="login-email"
               name="email"
               value={data.email}
-              onChange={(e) => {
-                setData((p) => ({ ...p, email: e.target.value }));
-                if (errors.email)
-                  setErrors((p) => ({ ...p, email: undefined }));
-              }}
+              onChange={(e) => handleEmailChange(e.target.value)}
+              onBlur={() => handleBlur("email")}
               placeholder="you@company.com"
               aria-required="true"
               aria-invalid={Boolean(errors.email)}
               aria-describedby={errors.email ? "login-email-error" : undefined}
               className={`w-full min-w-0 box-border rounded-xl border-2 ${
                 errors.email
-                  ? "border-red-400 bg-red-50/30 dark:bg-red-950/20"
-                  : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-[#4355CC]/50 dark:hover:border-indigo-500/50"
-              } py-2.5 sm:py-3 pl-10 pr-3.5 text-[13.5px] sm:text-[14px] font-bold text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-500 placeholder:font-medium focus:bg-white focus:dark:bg-slate-800 focus:border-[#4355CC] dark:focus:border-indigo-500 focus:ring-4 focus:ring-[#4355CC]/15 dark:focus:ring-indigo-500/20 focus:outline-none shadow-2xs transition-all`}
+                  ? "border-rose-500 bg-rose-50/40 dark:bg-rose-950/25 text-slate-900 dark:text-white focus:border-rose-500 focus:ring-4 focus:ring-rose-500/15"
+                  : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-[#4355CC]/50 dark:hover:border-indigo-500/50 focus:bg-white focus:dark:bg-slate-800 focus:border-[#4355CC] dark:focus:border-indigo-500 focus:ring-4 focus:ring-[#4355CC]/15 dark:focus:ring-indigo-500/20"
+              } py-2.5 sm:py-3 pl-10 pr-3.5 text-[13.5px] sm:text-[14px] font-bold text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-500 placeholder:font-medium focus:outline-none shadow-2xs transition-all`}
               autoComplete="email"
             />
           </div>
@@ -161,9 +214,9 @@ export const LoginForm = () => {
             <p
               id="login-email-error"
               role="alert"
-              className="mt-1 text-[11.5px] sm:text-[12px] font-bold text-red-700 dark:text-red-400 flex items-center gap-1 animate-in fade-in duration-150 break-words"
+              className="mt-1.5 text-[11.5px] sm:text-[12px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 animate-in fade-in duration-150 break-words"
             >
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500 dark:text-rose-400" aria-hidden="true" />
               <span>{errors.email}</span>
             </p>
           )}
@@ -191,20 +244,17 @@ export const LoginForm = () => {
               id="login-password"
               name="password"
               value={data.password}
-              onChange={(e) => {
-                setData((p) => ({ ...p, password: e.target.value }));
-                if (errors.password)
-                  setErrors((p) => ({ ...p, password: undefined }));
-              }}
+              onChange={(e) => handlePasswordChange(e.target.value)}
+              onBlur={() => handleBlur("password")}
               placeholder="Enter your password"
               aria-required="true"
               aria-invalid={Boolean(errors.password)}
               aria-describedby={errors.password ? "login-password-error" : undefined}
               className={`w-full min-w-0 box-border rounded-xl border-2 ${
                 errors.password
-                  ? "border-red-400 bg-red-50/30 dark:bg-red-950/20"
-                  : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-[#4355CC]/50 dark:hover:border-indigo-500/50"
-              } py-2.5 sm:py-3 pl-10 pr-10 text-[13.5px] sm:text-[14px] font-bold text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-500 placeholder:font-medium focus:bg-white focus:dark:bg-slate-800 focus:border-[#4355CC] dark:focus:border-indigo-500 focus:ring-4 focus:ring-[#4355CC]/15 dark:focus:ring-indigo-500/20 focus:outline-none shadow-2xs transition-all`}
+                  ? "border-rose-500 bg-rose-50/40 dark:bg-rose-950/25 text-slate-900 dark:text-white focus:border-rose-500 focus:ring-4 focus:ring-rose-500/15"
+                  : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-[#4355CC]/50 dark:hover:border-indigo-500/50 focus:bg-white focus:dark:bg-slate-800 focus:border-[#4355CC] dark:focus:border-indigo-500 focus:ring-4 focus:ring-[#4355CC]/15 dark:focus:ring-indigo-500/20"
+              } py-2.5 sm:py-3 pl-10 pr-10 text-[13.5px] sm:text-[14px] font-bold text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-500 placeholder:font-medium focus:outline-none shadow-2xs transition-all`}
               autoComplete="current-password"
             />
             <button
@@ -225,9 +275,9 @@ export const LoginForm = () => {
             <p
               id="login-password-error"
               role="alert"
-              className="mt-1 text-[11.5px] sm:text-[12px] font-bold text-red-700 dark:text-red-400 flex items-center gap-1 animate-in fade-in duration-150 break-words"
+              className="mt-1.5 text-[11.5px] sm:text-[12px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 animate-in fade-in duration-150 break-words"
             >
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500 dark:text-rose-400" aria-hidden="true" />
               <span>{errors.password}</span>
             </p>
           )}
@@ -248,6 +298,7 @@ export const LoginForm = () => {
                 setData((p) => ({ ...p, rememberMe: isChecked }));
                 if (!isChecked && typeof window !== "undefined") {
                   localStorage.removeItem("empsphere_remembered_email");
+                  localStorage.removeItem("empsphere_remember_me");
                 }
               }}
               className="h-4 w-4 rounded border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-800 text-[#4355CC] focus:ring-4 focus:ring-[#4355CC]/20 cursor-pointer shrink-0"
@@ -268,11 +319,11 @@ export const LoginForm = () => {
         <div className="pt-1 w-full min-w-0">
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={isSubmitting}
             aria-busy={isSubmitting}
             className={`group relative w-full min-w-0 flex items-center justify-center gap-2 rounded-xl py-3 sm:py-3.5 text-[14px] sm:text-[15px] font-extrabold text-white transition-all overflow-hidden focus-visible:outline-2 focus-visible:outline-[#4355CC] focus-visible:outline-offset-2 ${
-              !canSubmit
-                ? "bg-[#4355CC]/40 text-white/70 cursor-not-allowed opacity-60 backdrop-blur-xs pointer-events-none shadow-none"
+              isSubmitting
+                ? "bg-[#4355CC]/70 dark:bg-indigo-600/70 text-white/80 cursor-not-allowed"
                 : "bg-[#4355CC] hover:bg-[#3644A8] dark:bg-indigo-600 dark:hover:bg-indigo-500 hover:shadow-[0_8px_20px_-6px_rgba(67,85,204,0.5)] active:scale-[0.99] cursor-pointer"
             }`}
           >

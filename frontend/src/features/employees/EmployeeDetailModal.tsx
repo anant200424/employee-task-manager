@@ -22,6 +22,7 @@ import { Task } from "@/types/auth";
 import { toast } from "react-hot-toast";
 import { SendEmailModal } from "./SendEmailModal";
 import { useAuth } from "@/context/AuthContext";
+import { isSuperAdminUser, isSystemAdminUser } from "@/lib/roleUtils";
 
 interface EmployeeDetailModalProps {
   isOpen: boolean;
@@ -39,16 +40,8 @@ export const EmployeeDetailModal = ({
   onEdit,
 }: EmployeeDetailModalProps) => {
   const { user: currentUser } = useAuth();
-  const isCallerSuperAdmin =
-    currentUser?.systemRole === "super_admin" ||
-    String(currentUser?.role || "").toLowerCase().includes("super") ||
-    currentUser?.email === "superadmin@empsphere.io" ||
-    currentUser?.email === "anantsingh20334411@gmail.com";
-
-  const isCallerSystemAdmin =
-    currentUser?.systemRole === "system_admin" ||
-    String(currentUser?.role || "").toLowerCase().includes("system");
-
+  const isCallerSuperAdmin = isSuperAdminUser(currentUser);
+  const isCallerSystemAdmin = isSystemAdminUser(currentUser);
   const canManageRoles = isCallerSuperAdmin || isCallerSystemAdmin;
 
   const [loading, setLoading] = useState(true);

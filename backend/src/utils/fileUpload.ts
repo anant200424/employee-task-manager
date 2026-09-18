@@ -38,11 +38,20 @@ export const processBase64Image = (
 
   let extension = matches[1].toLowerCase();
   if (extension === "jpeg") extension = "jpg";
-  else if (extension === "svg+xml") extension = "svg";
-  else if (!/^[a-zA-Z0-9]+$/.test(extension)) extension = "png";
+
+  // Security guard: Disallow SVG to prevent embedded script execution (Stored XSS)
+  const allowedExtensions = ["jpg", "png", "webp", "gif"];
+  if (!allowedExtensions.includes(extension)) {
+    return "";
+  }
 
   const base64Data = matches[2];
   const buffer = Buffer.from(base64Data, "base64");
+
+  // Enforce 5MB upload size limit
+  if (buffer.length > 5 * 1024 * 1024) {
+    return "";
+  }
 
   // uploads directory at the root of backend
   const uploadsDir = path.resolve(__dirname, "../../uploads", subDir);

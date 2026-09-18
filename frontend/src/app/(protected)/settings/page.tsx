@@ -5,6 +5,7 @@ import { Topbar } from "@/components/dashboard/Topbar";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage, LanguageCode } from "@/context/LanguageContext";
 import { api, extractApiError } from "@/lib/api";
+import { isSystemAdminUser } from "@/lib/roleUtils";
 import {
   Sliders,
   Palette,
@@ -89,11 +90,7 @@ export default function SettingsPage() {
       : "employee");
 
   // Platform and infrastructure system settings are governed by Super Admin and System Admin
-  const isAdmin =
-    ["super_admin", "system_admin"].includes(sysRole) ||
-    rawRole.includes("super") ||
-    rawRole.includes("system") ||
-    user?.email === "anantsingh20334411@gmail.com";
+  const isAdmin = isSystemAdminUser(user);
 
   const [activeTab, setActiveTab] = useState<
     "preferences" | "appearance" | "privacy" | "security" | "system"

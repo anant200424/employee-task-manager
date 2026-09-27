@@ -1,0 +1,43 @@
+
+name: Seed employeeDB
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: employeeDB-seeding
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Seed database
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          SUPER_ADMIN_PASSWORD: ${{ secrets.SUPER_ADMIN_PASSWORD }}
+          SYSTEM_ADMIN_PASSWORD: ${{ secrets.SYSTEM_ADMIN_PASSWORD }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          MANAGER_PASSWORD: ${{ secrets.MANAGER_PASSWORD }}
+          DEMO_EMPLOYEE_PASSWORD: ${{ secrets.DEMO_EMPLOYEE_PASSWORD }}
+        run: npm run seed:all

@@ -33,7 +33,8 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 
 const allowedOrigins = [
   process.env.CLIENT_URL,
-  "https://employee-task-manager-cf7a3d0-anant-9029.vercel.app",
+  "https://employee-task-manager-iota.vercel.app",
+  "https://employee-task-manager-8jace2c-anant-9029.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ].filter(Boolean) as string[];

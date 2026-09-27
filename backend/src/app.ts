@@ -25,8 +25,15 @@ const app: Application = express();
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
 // CORS — validated origin whitelist for frontend port 3000 and local network clients
+// const allowedOrigins = [
+//   process.env.CLIENT_URL,
+//   "http://localhost:3000",
+//   "http://127.0.0.1:3000",
+// ].filter(Boolean) as string[];
+
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  "https://employee-task-manager-cf7a3d0-anant-9029.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ].filter(Boolean) as string[];

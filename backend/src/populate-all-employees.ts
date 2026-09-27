@@ -8,7 +8,7 @@ dotenv.config({ path: path.join(__dirname, "../.env") });
 
 const MONGO_URI =
   process.env.MONGO_URI ||
-  "mongodb+srv://anantsingh20334411_db_user:r0JD1tRZayx8aIxP@cluster0.3txsth7.mongodb.net/task_manager";
+  "mongodb+srv://anantsingh20334411_db_user:r0JD1tRZayx8aIxP@cluster0.3txsth7.mongodb.net/employeeDB";
 
 // Comprehensive catalog of production-grade task templates per department
 const departmentTaskTemplates: Record<

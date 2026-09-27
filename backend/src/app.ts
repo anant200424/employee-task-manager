@@ -20,6 +20,7 @@ import { notFound, errorHandler } from "./middleware/errorHandler";
 import { decryptPayloadMiddleware } from "./middleware/decryptPayload";
 
 const app: Application = express();
+app.set("trust proxy", 1);
 
 // Security headers - permit cross-origin resources between port 3000 and 5000
 app.use(helmet({ crossOriginResourcePolicy: false }));

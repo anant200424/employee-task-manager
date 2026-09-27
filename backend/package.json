@@ -3,15 +3,16 @@
   "version": "1.0.0",
   "description": "Nexus Auth System - Backend API (Node.js, Express, TypeScript, MongoDB)",
   "main": "dist/server.js",
-  "scripts": {
-    "dev": "nodemon --exec ts-node src/server.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
-    "lint": "eslint src --ext .ts",
-    "seed:admins": "node dist/seed-admins.js",
-    "seed:all": "node dist/seed-all.js",
-"seed:employees": "node dist/populate-all-employees.js"
-  },
+ "scripts": {
+  "dev": "nodemon --exec ts-node src/server.ts",
+  "build": "tsc -p tsconfig.json",
+  "start": "node dist/server.js",
+  "lint": "eslint src --ext .ts",
+  "seed:admins": "node dist/seed-admins.js",
+  "seed:demo": "node dist/seed-demo-employees.js",
+  "seed:employees": "node dist/populate-all-employees.js",
+  "seed:all": "npm run seed:admins && npm run seed:demo && npm run seed:employees"
+},
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.11.0",

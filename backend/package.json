@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
     "seed:admins": "node dist/seed-admins.js",
-    "seed:all": "node dist/seed-all.js"
+    "seed:all": "node dist/seed-all.js",
 "seed:employees": "node dist/populate-all-employees.js"
   },
   "dependencies": {

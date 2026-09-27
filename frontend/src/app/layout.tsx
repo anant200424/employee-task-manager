@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+// import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { SocketProvider } from "@/context/SocketContext";
@@ -7,20 +7,20 @@ import { LanguageProvider } from "@/context/LanguageContext";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { Toaster } from "react-hot-toast";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-  fallback: ["system-ui", "sans-serif"],
-});
+// const inter = Inter({
+//   subsets: ["latin"],
+//   variable: "--font-inter",
+//   display: "swap",
+//   fallback: ["system-ui", "sans-serif"],
+// });
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
-  variable: "--font-jakarta",
-  display: "swap",
-  fallback: ["system-ui", "sans-serif"],
-});
+// const jakarta = Plus_Jakarta_Sans({
+//   subsets: ["latin"],
+//   weight: ["500", "600", "700", "800"],
+//   variable: "--font-jakarta",
+//   display: "swap",
+//   fallback: ["system-ui", "sans-serif"],
+// });
 
 export const metadata: Metadata = {
   title: {
@@ -42,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jakarta.variable}`} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body>
         <ThemeHydration />
         <LanguageProvider>
